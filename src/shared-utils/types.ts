@@ -269,6 +269,8 @@ export interface FileToSync {
 	siYuanPath: string;
 	/** Repository-relative path used by GitHub (e.g. `data/notes/foo.sy`). */
 	githubPath: string;
+	/** [rt31] Content re-read by the stability guard right before upload. */
+	_settledContent?: ArrayBuffer;
 }
 
 /**
@@ -297,7 +299,7 @@ export interface SyncResult {
  * Each list holds files grouped by the action the push should take.
  */
 export interface MergePlan {
-	toUpload: { githubPath: string; siYuanPath: string }[];
+    toUpload: { githubPath: string; siYuanPath: string; _settledContent?: ArrayBuffer }[];
 	toReuse: { githubPath: string; sha: string }[];
 	toDelete: { githubPath: string }[];
 	toPull: { githubPath: string; siYuanPath: string }[];

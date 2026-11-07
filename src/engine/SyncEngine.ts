@@ -504,17 +504,28 @@ export class SyncEngine extends EventEmitter {
 			});
 		}
 
-		for (let i = 0; i < plan.toUpload.length; i++) {
-			const u = plan.toUpload[i];
-			this.emit(
-				"progress",
-				40 + Math.round((i / plan.toUpload.length) * 40),
-				`Upload : ${i + 1}/${plan.toUpload.length}`,
-				u.githubPath,
-			);
+for (let i = 0; i < plan.toUpload.length; i++) {
+                        const u = plan.toUpload[i];
+                        this.emit(
+                                "progress",
+                                40 + Math.round((i / plan.toUpload.length) * 40),
+                                `Upload : ${i + 1}/${plan.toUpload.length}`,
+                                u.githubPath,
+                        );
 
-			const content = await this.siyuan.getFile(u.siYuanPath);
-			if (!content) continue;
+                        // STABILITY GUARD (rt31): the kernel flushes trees
+                        // asynchronously, so a file edited <1s ago may still be
+                        // mid-write. Re-read after a short settle delay and use
+                        // the fresher copy so we never upload a torn snapshot.
+                        await new Promise((r) => setTimeout(r, 150));
+                        const fresh = await this.siyuan.getFile(u.siYuanPath);
+                        if (fresh && fresh.byteLength > 0) {
+                                u._settledContent = fresh;
+                        }
+
+// Use the settled content from the stability guard when available.
+                        const content = u._settledContent ?? await this.siyuan.getFile(u.siYuanPath);
+                        if (!content) continue;
 
 			const encrypted = await this.crypto.encrypt(content);
 			const blobRes = await this.api.createBlob(arrayBufferToBase64(encrypted));
@@ -748,10 +759,18 @@ export class SyncEngine extends EventEmitter {
 							? await calculateGitSha(localContent)
 							: "";
 
-					if (remoteSynced !== item.sha || localSha !== localSynced) {
-						toPull.push({ item, siPath, originalPath });
-					}
-					processed++;
+if (remoteSynced !== item.sha || localSha !== localSynced) {
+                                                // RACE GUARD (rt31): if local content differs from
+                                                // what we last synced, this file may carry un-pushed
+                                                // local edits (kernel flushed the tree AFTER our
+                                                // last push read it). Pulling would clobber them.
+                                                // Skip; the next push uploads the local version.
+                                                if (localSha && localSha !== localSynced) {
+                                                        return;
+                                                }
+                                                toPull.push({ item, siPath, originalPath });
+                                        }
+                                        processed++;
 				}),
 			);
 
