@@ -65,7 +65,11 @@ export class RealtimeEngine {
         private watchdog: ReturnType<typeof setInterval> | null = null;
         private etag: string | null = null;
         private busy = false;
+        /** When the current `busy` window started (stale-lock detection). */
+        private busySince = 0;
         private lastKnownRemoteSha: string | null = null;
+        /** Set when a push was requested while another op held `busy`. */
+        private pendingPush = false;
         private wsHandler: (event: CustomEvent) => void;
 
         constructor(
@@ -147,15 +151,30 @@ export class RealtimeEngine {
         }
 
         private async firePush(): Promise<void> {
-                if (this.busy) return;
+                // Don't drop the event when another op is running — remember it and
+                // replay once the current op finishes (a dropped event = lost sync).
+                if (this.busy) {
+                        this.pendingPush = true;
+                        this.trace("push deferred (busy)");
+                        return;
+                }
                 this.busy = true;
+                this.pendingPush = false;
+                this.busySince = Date.now();
                 try {
                         const r = await this.engine.pushToGitHub();
                         if (r.status === "success") this.lastKnownRemoteSha = null;
                 } catch (e) {
-                        this.trace("push error: " + e);
+                        const raw = e instanceof Error ? `${e.message}` : String(e);
+                        this.trace(`push error: ${raw}`);
                 } finally {
                         this.busy = false;
+                        // Replay a push that was requested while we were busy.
+                        if (this.pendingPush) {
+                                this.pendingPush = false;
+                                this.trace("push replay after busy");
+                                setTimeout(() => this.firePush(), 500);
+                        }
                 }
         }
 
@@ -270,6 +289,13 @@ export class RealtimeEngine {
                 if (this.watchdog) clearInterval(this.watchdog);
                 this.watchdog = setInterval(async () => {
                         try {
+                                // Stale-lock recovery: a hung pull (network stall inside
+                                // the kernel relay) must never block sync forever.
+                                if (this.busy && this.busySince && Date.now() - this.busySince > 120000) {
+                                        this.trace("watchdog: clearing stale busy lock");
+                                        this.busy = false;
+                                        this.busySince = 0;
+                                }
                                 if (!this.pollTimer) {
                                         this.trace("watchdog: respawn poll");
                                         this.startPoll();
