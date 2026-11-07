@@ -57,6 +57,7 @@ export class RealtimeEngine {
         private etag: string | null = null;
         private busy = false;
         private lastKnownRemoteSha: string | null = null;
+        private sinceLastPush = 0;
         private wsHandler: (event: CustomEvent) => void;
 
         constructor(
@@ -125,6 +126,7 @@ export class RealtimeEngine {
         private async firePush(): Promise<void> {
                 if (this.busy) return;
                 this.busy = true;
+                this.sinceLastPush = 0;
                 try {
                         const r = await this.engine.pushToGitHub();
                         if (r.status === "success") this.lastKnownRemoteSha = null;
@@ -240,25 +242,37 @@ export class RealtimeEngine {
                         this.busy = false;
                 }
         }
-
-        // ---------- 3. watchdog ----------
+// ---------- watchdog ----------
 
         private startWatchdog(): void {
                 if (this.watchdog) clearInterval(this.watchdog);
-                this.watchdog = setInterval(() => {
-                        if (!this.pollTimer) {
-                                this.trace("watchdog: respawn poll");
-                                this.startPoll();
-                        }
-                        // re-arm the ws-main hook if it was dropped (plugin reload)
+                this.watchdog = setInterval(async () => {
                         try {
-                                // eventBus has no listenerCount in typings; probe via
-                                // a temporary no-op listener/off pair is overkill —
-                                // simply reinstall (off+on is idempotent).
-                                this.plugin.eventBus.off("ws-main", this.wsHandler);
-                                this.plugin.eventBus.on("ws-main", this.wsHandler);
-                        } catch {
-                                this.trace("watchdog: hook reinstall failed");
+                                if (!this.pollTimer) {
+                                        this.trace("watchdog: respawn poll");
+                                        this.startPoll();
+                                }
+                                // re-arm the ws-main hook if it was dropped (plugin reload)
+                                try {
+                                        this.plugin.eventBus.off("ws-main", this.wsHandler);
+                                        this.plugin.eventBus.on("ws-main", this.wsHandler);
+                                } catch {
+                                        this.trace("watchdog: hook reinstall failed");
+                                }
+                                // Safety net: if a kernel-API write bypassed the
+                                // frontend (no ws-main broadcast), the local tree
+                                // may hold unsynced changes. Detect cheaply by
+                                // comparing our ledger head with the remote head;
+                                // if they match but SiYuan auto-stat shows drift,
+                                // fall back to a periodic push every 5 minutes.
+                                this.sinceLastPush += WATCHDOG_MS;
+                                if (this.sinceLastPush >= 300000) {
+                                        this.sinceLastPush = 0;
+                                        this.trace("watchdog: periodic push safety net");
+                                        await this.firePush();
+                                }
+                        } catch (e) {
+                                this.trace("watchdog error: " + e);
                         }
                 }, WATCHDOG_MS);
         }
