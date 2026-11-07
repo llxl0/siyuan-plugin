@@ -7,7 +7,7 @@
  * API orchestration, event emission for UI progress, and centralized error mapping.
  */
 import { EventEmitter } from "events";
-import { showMessage, Dialog } from "siyuan";
+import { showMessage, Dialog, getFrontend } from "siyuan";
 import { t, setLocale } from "../shared-utils/i18n";
 import {
 	SYNC_ROOT,
@@ -54,6 +54,10 @@ import {
 import { SiYuanAPI } from "src/api/Siyuan-api";
 
 export class SyncEngine extends EventEmitter {
+        // Paths of .sy files written during the current pull (for upsertIndexes)
+        private pulledSyPaths: string[] = [];
+        // Paths of .sy files deleted during the current pull (for removeIndexes)
+        private deletedSyPaths: string[] = [];
 	// Currently running operation ("push"/"pull"), or null when idle.
 	// prevents conflicts between operations
 	private activeTask: "push" | "pull" | null = null;
@@ -736,11 +740,15 @@ export class SyncEngine extends EventEmitter {
 		return { toPull, remotePlainSet };
 	}
 
-	// download + write operations
-	private async downloadAndWriteFiles(
-		toPull: { item: GitHubTreeItem; siPath: string; originalPath: string }[],
-	): Promise<boolean> {
-		const CHUNK_SIZE_PULL = 5; // GitHub API rate limits prefer small concurrent batches for blob downloads
+// download + write operations
+        private async downloadAndWriteFiles(
+                toPull: { item: GitHubTreeItem; siPath: string; originalPath: string }[],
+        ): Promise<boolean> {
+                // llxl0 fork: on mobile every GitHub call goes through the kernel
+                // relay (/api/network/forwardProxy) which serializes internally;
+                // hammering it with 5 parallel blobs caused transient failures.
+                const isMobile = getFrontend().includes("mobile");
+                const CHUNK_SIZE_PULL = isMobile ? 1 : 5;
 		let stateUpdated = false;
 
 		for (let i = 0; i < toPull.length; i += CHUNK_SIZE_PULL) {
@@ -763,16 +771,19 @@ export class SyncEngine extends EventEmitter {
 					const content = await this.api.downloadBlob(item.sha);
 					if (content && content.byteLength > 0) {
 						try {
-							const decrypted = await this.crypto.decrypt(content);
-							const writeSuccess = await this.siyuan.putFile(siPath, decrypted);
+                                                        const decrypted = await this.crypto.decrypt(content);
+                                                        const writeSuccess = await this.siyuan.putFile(siPath, decrypted);
 
-							if (writeSuccess) {
-								console.debug(
-									`[GitHub Sync] Wrote pulled file to workspace: ${siPath}`,
-								);
-								const ptSha = await calculateGitSha(decrypted);
-								this.ledger.updateFile(originalPath, ptSha, item.sha);
-								stateUpdated = true;
+                                                        if (writeSuccess) {
+                                                                console.debug(
+                                                                        `[GitHub Sync] Wrote pulled file to workspace: ${siPath}`,
+                                                                );
+                                                                // Track .sy docs for seamless index upsert
+                                                                if (siPath.endsWith(".sy"))
+                                                                        this.pulledSyPaths.push(siPath);
+                                                                const ptSha = await calculateGitSha(decrypted);
+                                                                this.ledger.updateFile(originalPath, ptSha, item.sha);
+                                                                stateUpdated = true;
 							} else {
 								console.error(
 									`[GitHub Sync] Backend rejected file write for: ${siPath}`,
@@ -861,22 +872,28 @@ export class SyncEngine extends EventEmitter {
 				continue;
 			}
 
-			this.emit("progress", 85, t("progress.cleanup"), localPath);
-			if (await this.siyuan.removeFile(`/${localPath}`)) {
-				this.ledger.removeFile(localPath);
-				deletedCount++;
-			}
+this.emit("progress", 85, t("progress.cleanup"), localPath);
+                        if (await this.siyuan.removeFile(`/${localPath}`)) {
+                                // Track .sy docs for seamless index removal
+                                if (localPath.endsWith(".sy"))
+                                        this.deletedSyPaths.push(`/${localPath}`);
+                                this.ledger.removeFile(localPath);
+                                deletedCount++;
+                        }
 		}
 
 		return deletedCount;
 	}
 
-	private async finalizePull(
-		stateUpdated: boolean,
-		deletedCount: number,
-		pulledCount: number,
-	): Promise<SyncResult> {
-		console.debug(
+private async finalizePull(
+                stateUpdated: boolean,
+                deletedCount: number,
+                pulledCount: number,
+        ): Promise<SyncResult> {
+                // Reset per-pull path trackers (populated by download/delete loops)
+                this.pulledSyPaths = [];
+                this.deletedSyPaths = [];
+                console.debug(
 			`[GitHub Sync] finalizePull: stateUpdated=${stateUpdated}, deletedCount=${deletedCount}, pulledCount=${pulledCount}`,
 		);
 
@@ -887,26 +904,28 @@ export class SyncEngine extends EventEmitter {
 			await this.ledger.save(this.lastCommitSha!);
 		}
 
-		const message = t("msg.pull_done")
-			.replace("{updated}", String(pulledCount))
-			.replace("{deleted}", String(deletedCount))
-			.replace("{skipped}", "0");
+                const message = t("msg.pull_done")
+                        .replace("{updated}", String(pulledCount))
+                        .replace("{deleted}", String(deletedCount))
+                        .replace("{skipped}", "0");
 
-		// Signal the UI to close the progress dialog
-		this.emit("progress", 100, t("ui.done"), message);
+                // Signal the UI to close the progress dialog
+                this.emit("progress", 100, t("ui.done"), message);
 
-		if (deletedCount > 0 || stateUpdated) {
-			console.debug(
-				`[GitHub Sync] Refreshing filetree and scheduling reload...`,
-			);
+                if (deletedCount > 0 || stateUpdated) {
+                        console.debug(
+                                `[GitHub Sync] Seamless index update (no window reload)...`,
+                        );
 
-			await this.siyuan.refreshFiletree();
-			await this.siyuan.rebuildDataIndex();
-
-			setTimeout(() => window.location.reload(), 1500); // Reload SiYuan to rebuild indexes
-		} else {
-			console.debug(`[GitHub Sync] No changes required, skipping reload.`);
-		}
+                        // Notion-style seamless refresh: per-doc index upsert +
+                        // lightweight filetree reload. NO window.location.reload()
+                        // (that was an OOM risk and destroyed open editors).
+                        await this.siyuan.upsertIndexes(this.pulledSyPaths);
+                        await this.siyuan.removeIndexes(this.deletedSyPaths);
+                        await this.siyuan.refreshFiletree();
+                } else {
+                        console.debug(`[GitHub Sync] No changes required, skipping reload.`);
+                }
 
 		return {
 			status: "success",
@@ -950,9 +969,14 @@ export class SyncEngine extends EventEmitter {
 			return new SyncError(error.status, localMessage, error);
 		}
 
-		// Fallback for network timeouts or JS runtime errors
-		const fallbackMessage = friendlyError(error);
-		return new SyncError(500, fallbackMessage, error);
+// Fallback for network timeouts or JS runtime errors
+                const fallbackMessage = friendlyError(error);
+                const syncErr = new SyncError(500, fallbackMessage, error);
+                // llxl0 fork: preserve the RAW cause for debugging (RealtimeEngine
+                // traces syncErr.cause), otherwise root causes get masked forever.
+                (syncErr as unknown as { rawMessage?: string }).rawMessage =
+                        error instanceof Error ? error.message : String(error);
+                return syncErr;
 	}
 
 	// Action buttons operations

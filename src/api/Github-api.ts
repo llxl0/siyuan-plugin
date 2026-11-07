@@ -7,6 +7,7 @@ import {
 } from "../shared-utils/types";
 import { base64ToArrayBuffer, sleep } from "../shared-utils/utils";
 import { t } from "../shared-utils/i18n";
+import { getFrontend } from "siyuan";
 
 export class GitHubError extends Error {
 	constructor(
@@ -31,41 +32,52 @@ export class GitHubAPI {
 	 */
 	constructor(private config: GitPluginConfig) {}
 
-	/**
-	 * Perform an authenticated request against the GitHub REST API with
-	 * automatic rate-limit handling.
-	 *
-	 * On HTTP 403/429 (rate limited) it waits either the `retry-after` hint,
-	 * the `x-ratelimit-reset` time, or an exponential backoff, then retries up
-	 * to `retries` times. Other non-OK responses are returned to the caller.
-	 */
-	async gh(
-		path: string,
-		method = "GET",
-		body?: object,
-		retries = 3,
-	): Promise<Response> {
-		// Force cache bypassing by appending a unique timestamp to GET requests
-		const url =
-			method === "GET"
-				? `${GITHUB_API}${path}${path.includes("?") ? "&" : "?"}t=${Date.now()}`
-				: `${GITHUB_API}${path}`;
-		let attempt = 0;
+        /**
+         * Perform an authenticated request against the GitHub REST API with
+         * automatic rate-limit handling.
+         *
+         * 2026-11-07 (llxl0 fork): on mobile ("mobile" frontend detected via
+         * user agent), every request is relayed through the SiYuan kernel's
+         * /api/network/forwardProxy. Reason: on CN networks the WebView's
+         * Chromium stack is far more likely to be blocked/throttled against
+         * api.github.com than the kernel's Go HTTP client — the kernel keeps
+         * working when the WebView fails. Desktop keeps using direct fetch.
+         *
+         * On HTTP 403/429 (rate limited) it waits either the `retry-after` hint,
+         * the `x-ratelimit-reset` time, or an exponential backoff, then retries up
+         * to `retries` times. Other non-OK responses are returned to the caller.
+         */
+        async gh(
+                path: string,
+                method = "GET",
+                body?: object,
+                retries = 3,
+        ): Promise<Response> {
+                const isMobile = getFrontend().includes("mobile");
+                if (isMobile) {
+                        return this.ghViaKernel(path, method, body, retries);
+                }
+                // Force cache bypassing by appending a unique timestamp to GET requests
+                const url =
+                        method === "GET"
+                                ? `${GITHUB_API}${path}${path.includes("?") ? "&" : "?"}t=${Date.now()}`
+                                : `${GITHUB_API}${path}`;
+                let attempt = 0;
 
-		while (attempt < retries) {
-			console.debug(
-				`[GitHub Sync] API Request: ${method} ${url} (Attempt ${attempt + 1})`,
-			);
-			const res = await fetch(url, {
-				method,
-				headers: {
-					Authorization: `Bearer ${this.config.token}`,
-					"Content-Type": "application/json",
-					Accept: "application/vnd.github+json",
-					"Cache-Control": "no-cache", // Explicitly request fresh data
-				},
-				body: body ? JSON.stringify(body) : undefined,
-			});
+                while (attempt < retries) {
+                        console.debug(
+                                `[GitHub Sync] API Request: ${method} ${url} (Attempt ${attempt + 1})`,
+                        );
+                        const res = await fetch(url, {
+                                method,
+                                headers: {
+                                        Authorization: `Bearer ${this.config.token}`,
+                                        "Content-Type": "application/json",
+                                        Accept: "application/vnd.github+json",
+                                        "Cache-Control": "no-cache", // Explicitly request fresh data
+                                },
+                                body: body ? JSON.stringify(body) : undefined,
+                        });
 
 			const remaining = res.headers.get("x-ratelimit-remaining");
 			if (remaining) {
@@ -278,7 +290,91 @@ export class GitHubAPI {
 		return this.gh(
 			`/repos/${this.config.username}/${this.config.repo}/git/refs/heads/${branch}`,
 			"PATCH",
-			{ sha, force: true },
-		);
-	}
+                        { sha, force: true },
+                );
+        }
+
+        /**
+         * Mobile-only: relay a GitHub REST request through the SiYuan kernel
+         * (/api/network/forwardProxy) and fabricate a Response-like object.
+         * The kernel's Go HTTP stack is far more reliable than the Android
+         * WebView against api.github.com on CN networks.
+         */
+        private async ghViaKernel(
+                path: string,
+                method: string,
+                body: object | undefined,
+                retries: number,
+        ): Promise<Response> {
+                const url = `${GITHUB_API}${path}`;
+                let attempt = 0;
+                while (attempt < retries) {
+                        const payload: Record<string, unknown> = {
+                                url,
+                                method,
+                                headers: [
+                                        { Authorization: `Bearer ${this.config.token}` },
+                                        { Accept: "application/vnd.github+json" },
+                                ],
+                                timeout: 30000,
+                                contentType: "application/json",
+                        };
+                        if (body !== undefined) {
+                                // Kernel contract: field is "payload" (string), NOT "requestBody"
+                                payload.payload = JSON.stringify(body);
+                        }
+                        let res: Response;
+                        try {
+                                res = await fetch("/api/network/forwardProxy", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify(payload),
+                                });
+                        } catch (e) {
+                                // Local kernel fetch failed (busy window / reload) —
+                                // retry instead of aborting the whole pull.
+                                console.warn(`[GitHub Sync] relay fetch failed (attempt ${attempt + 1}):`, e);
+                                await sleep(Math.pow(2, attempt) * 1500);
+                                attempt++;
+                                continue;
+                        }
+                        let json: {
+                                code: number;
+                                msg?: string;
+                                data?: { status: number; body?: string };
+                        };
+                        try {
+                                json = await res.json();
+                        } catch (e) {
+                                console.warn("[GitHub Sync] relay non-JSON response:", e);
+                                await sleep(Math.pow(2, attempt) * 1500);
+                                attempt++;
+                                continue;
+                        }
+                        if (json.code !== 0) {
+                                // Kernel may transiently fail (busy/restarting);
+                                // treat as retryable like a network error.
+                                console.warn(`[GitHub Sync] forwardProxy code=${json.code} ${json.msg}`);
+                                await sleep(Math.pow(2, attempt) * 1500);
+                                attempt++;
+                                continue;
+                        }
+                        const status = json.data.status as number;
+                        const text = (json.data.body ?? "") as string;
+                        console.debug(
+                                `[GitHub Sync] [kernel-relay] ${method} ${path} -> ${status}`,
+                        );
+                        // Rate limit backoff (headers are not relayed; use body hints)
+                        if (status === 403 || status === 429) {
+                                await sleep(Math.pow(2, attempt) * 2000);
+                                attempt++;
+                                continue;
+                        }
+                        return new Response(text, {
+                                status,
+                                headers: { "Content-Type": "application/json" },
+                        });
+                }
+                throw new Error("forwardProxy: retries exhausted");
+        }
 }

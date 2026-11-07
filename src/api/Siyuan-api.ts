@@ -87,19 +87,55 @@ export class SiYuanAPI {
 		}
 	}
 
-	/** Ask SiYuan to rebuild its file-tree (needed after batch pull/deletes). */
-	public async refreshFiletree(): Promise<boolean> {
-		try {
-			const res = await fetch("/api/filetree/refreshFiletree", {
-				method: "POST",
-				body: "{}",
-			});
-			const json = await res.json();
-			return json.code === 0;
-		} catch {
-			return false;
-		}
-	}
+        /** Ask SiYuan to rebuild its file-tree (needed after batch pull/deletes).
+         *  NOTE: /api/filetree/refreshFiletree was REMOVED in SiYuan v3.8.9
+         *  (always 404). /api/ui/reloadFiletree is the replacement. */
+        public async refreshFiletree(): Promise<boolean> {
+                try {
+                        const res = await fetch("/api/ui/reloadFiletree", {
+                                method: "POST",
+                                body: "{}",
+                        });
+                        const json = await res.json();
+                        return json.code === 0;
+                } catch {
+                        return false;
+                }
+        }
+
+        /** Register pulled .sy docs into the SQL index WITHOUT a full-window
+         *  reload. This is the "Notion-style" seamless refresh: millisecond-
+         *  level per-doc index update, then a lightweight filetree reload. */
+        public async upsertIndexes(paths: string[]): Promise<boolean> {
+                if (!paths.length) return true;
+                try {
+                        const res = await fetch("/api/filetree/upsertIndexes", {
+                                method: "POST",
+                                body: JSON.stringify({ paths }),
+                        });
+                        const json = await res.json();
+                        return json.code === 0;
+                } catch (e) {
+                        console.warn("[GitHub Sync] upsertIndexes failed:", e);
+                        return false;
+                }
+        }
+
+        /** Remove deleted .sy docs from the SQL index (no full reload). */
+        public async removeIndexes(paths: string[]): Promise<boolean> {
+                if (!paths.length) return true;
+                try {
+                        const res = await fetch("/api/filetree/removeIndexes", {
+                                method: "POST",
+                                body: JSON.stringify({ paths }),
+                        });
+                        const json = await res.json();
+                        return json.code === 0;
+                } catch (e) {
+                        console.warn("[GitHub Sync] removeIndexes failed:", e);
+                        return false;
+                }
+        }
 
 	/** Delete a file from the workspace (`/api/file/removeFile`). */
 	public async removeFile(path: string): Promise<boolean> {

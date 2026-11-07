@@ -56,8 +56,13 @@ export class SyncStateLedger {
 		delete this.state[path];
 	}
 
-	// share current internal state upon request
-	public getState(): Record<string, string> {
-		return this.state;
-	}
+        // share current internal state upon request
+        public getState(): Record<string, string> {
+                return this.state;
+        }
+
+        // head commit sha of the last synced state ("" when never synced)
+        public getHead(): string {
+                return this.lastCommitSha;
+        }
 }
