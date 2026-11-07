@@ -16,14 +16,18 @@ export class SettingsUI {
 		private plugin: GitHubSyncPlugin,
 		private engine: SyncEngine,
 	) {
-		this.engine.removeAllListeners()
+this.engine.removeAllListeners()
 
-		this.engine.on(
-			"progress",
-			(percent: number, status: string, details: string) => {
-				this.updateProgressUI(percent, status, details);
-			},
-		);
+                // llxl0 fork: only show the progress dialog for MANUAL syncs.
+                // Background (realtime) syncs used to pop a "GitHub Sync" window
+                // every 10 seconds — deeply annoying and pointless for the user.
+                this.engine.on(
+                        "progress",
+                        (percent: number, status: string, details: string) => {
+                                if (!this.plugin.isManualSync) return;
+                                this.updateProgressUI(percent, status, details);
+                        },
+                );
 
 		this.engine.on("error", (err: SyncError | string) => {
     const msg = err instanceof SyncError ? err.message : String(err);

@@ -39,21 +39,61 @@ export class StatusBarUI {
 
     private update() {
         if (!this.statusBarEl) return;
-        const loaded = this.config.lastSync;
-        if (loaded) {
-            const d = new Date(loaded);
-            const hh = String(d.getHours()).padStart(2, "0");
-            const mm = String(d.getMinutes()).padStart(2, "0");
-            const dd = String(d.getDate()).padStart(2, "0");
-            const mo = String(d.getMonth() + 1).padStart(2, "0");
-            this.statusBarEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;">🔄 Sync: ${dd}/${mo} ${hh}:${mm}</span>`;
-        } else {
-            this.statusBarEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;">🔄 Sync: --/--</span>`;
+        if (this.busy) {
+            this.statusBarEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;">🔄 同步中…</span>`;
+            return;
         }
+        const local = this.localCount;
+        const remote = this.remoteCount;
+        if (remote === null) {
+            this.statusBarEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;" title="等待首次同步">🔄 待同步</span>`;
+            return;
+        }
+        // "local / remote" — shows at a glance whether both sides carry the
+        // same number of files. Equal ⇒ in sync; local<remote ⇒ pull pending;
+        // local>remote ⇒ push pending.
+        let icon = "🔄";
+        let hint = "本地 / 远端 文件数（一致即已同步）";
+        if (local !== null && local !== remote) {
+            icon = local < remote ? "⬇️" : "⬆️";
+            hint = local < remote ? `待拉取 ${remote - local} 个文件` : `待推送 ${local - remote} 个文件`;
+        }
+        const l = local === null ? "--" : String(local);
+        this.statusBarEl.innerHTML =
+            `<span style="display:inline-flex;align-items:center;gap:4px;" title="${hint}">${icon} ${l}/${remote}</span>`;
+    }
+
+    private busy = false;
+    private localCount: number | null = null;
+    private remoteCount: number | null = null;
+
+    /** Called by the realtime engine when a push/pull starts or finishes. */
+    public setBusy(busy: boolean): void {
+        this.busy = busy;
+        this.update();
+    }
+
+    /** Update the file counts shown as "local / remote". */
+    public setCounts(local: number | null, remote: number | null): void {
+        if (local !== null) this.localCount = local;
+        if (remote !== null) this.remoteCount = remote;
+        this.update();
+    }
+
+    /**
+     * Called by the realtime engine after a successful background sync.
+     */
+    public markSynced(): void {
+        this.busy = false;
+        this.config.lastSync = Date.now();
+        this.update();
+        // Fire-and-forget: don't block the sync pipeline on disk I/O.
+        void this.plugin.saveData(STORAGE_KEY, this.config);
     }
 
     public async saveTimestamp() {
         this.config.lastSync = Date.now();
+        this.busy = false;
         this.update();
         await this.plugin.saveData(STORAGE_KEY, this.config);
     }

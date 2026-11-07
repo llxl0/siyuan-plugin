@@ -36,6 +36,8 @@ export default class GitHubSyncPlugin extends Plugin {
         private ledger!: SyncStateLedger;
         private statusBar!: StatusBarUI;
         private realtime!: RealtimeEngine;
+        /** True while a user-initiated (button) sync runs — gates the progress dialog. */
+        public isManualSync = false;
         public config: GitPluginConfig = { ...DEFAULT_CONFIG };
 
         async onload() {
@@ -71,6 +73,7 @@ export default class GitHubSyncPlugin extends Plugin {
                         title: t("top.push_title"),
                         position: "right",
                         callback: async () => {
+                                this.isManualSync = true;
                                 try {
                                         await this.engine.pushToGitHub();
                                         await this.statusBar.saveTimestamp();
@@ -78,6 +81,8 @@ export default class GitHubSyncPlugin extends Plugin {
                                         const msg =
                                                 err instanceof SyncError ? err.message : friendlyError(err);
                                         showMessage(msg, 6000, "error");
+                                } finally {
+                                        this.isManualSync = false;
                                 }
                         },
                 });
@@ -87,6 +92,7 @@ export default class GitHubSyncPlugin extends Plugin {
                         title: t("top.pull_title"),
                         position: "right",
                         callback: async () => {
+                                this.isManualSync = true;
                                 try {
                                         await this.engine.pullFromGitHub();
                                         await this.statusBar.saveTimestamp();
@@ -94,6 +100,8 @@ export default class GitHubSyncPlugin extends Plugin {
                                         const msg =
                                                 err instanceof SyncError ? err.message : friendlyError(err);
                                         showMessage(msg, 6000, "error");
+                                } finally {
+                                        this.isManualSync = false;
                                 }
                         },
                 });
@@ -106,6 +114,7 @@ export default class GitHubSyncPlugin extends Plugin {
                         siyuan,
                         this.ledger,
                         this.config,
+                        this.statusBar,
                 );
                 this.realtime.start();
         }

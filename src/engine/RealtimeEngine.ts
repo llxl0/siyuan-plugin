@@ -79,6 +79,11 @@ export class RealtimeEngine {
                 siyuan: SiYuanAPI,
                 ledger: SyncStateLedger,
                 config: GitPluginConfig,
+                private statusBar?: {
+                setBusy(b: boolean): void;
+                markSynced(): void;
+                setCounts(local: number | null, remote: number | null): void;
+        },
         ) {
                 this.plugin = plugin;
                 this.engine = engine;
@@ -97,6 +102,7 @@ export class RealtimeEngine {
                 this.startPoll();
                 this.startWatchdog();
                 this.trace("realtime start poll=" + POLL_MS);
+                void this.reportCounts();
         }
 
         public stop(): void {
@@ -161,9 +167,14 @@ export class RealtimeEngine {
                 this.busy = true;
                 this.pendingPush = false;
                 this.busySince = Date.now();
+                this.statusBar?.setBusy(true);
                 try {
                         const r = await this.engine.pushToGitHub();
-                        if (r.status === "success") this.lastKnownRemoteSha = null;
+                        if (r.status === "success") {
+                                this.lastKnownRemoteSha = null;
+                                this.statusBar?.markSynced();
+                                void this.reportCounts();
+                        }
                 } catch (e) {
                         const raw = e instanceof Error ? `${e.message}` : String(e);
                         this.trace(`push error: ${raw}`);
@@ -266,21 +277,38 @@ export class RealtimeEngine {
 
                 // New remote commit -> incremental pull
                 this.busy = true;
+                this.busySince = Date.now();
+                this.statusBar?.setBusy(true);
                 try {
-                        const r = await this.engine.pullFromGitHub();
-                        if (r.status === "success")
+                        // Generous ceiling: the very first pull may transfer 600+ files.
+                        // At 16-way parallel (measured 102ms/file) that is ≈63s; keep a
+                        // wide margin so a cold start never trips the timeout.
+                        const r = (await Promise.race([
+                                this.engine.pullFromGitHub(),
+                                new Promise<never>((_, rej) =>
+                                        setTimeout(() => rej(new Error("pull timeout 300s")), 300000),
+                                ),
+                        ])) as Awaited<ReturnType<SyncEngine["pullFromGitHub"]>>;
+                        if (r.status === "success") {
                                 this.trace("pulled -> " + remoteSha.slice(0, 7));
+                                this.statusBar?.markSynced();
+                                void this.reportCounts();
+                        }
                         else
-                                this.trace("pull not-success: " + JSON.stringify(r).slice(0, 300));
+                                this.trace("pull not-success: " + JSON.stringify(r).slice(0, 200));
                 } catch (e) {
-                        // keep the RAW message — friendlyError() masks root causes
                         const raw =
                                 (e as { rawMessage?: string })?.rawMessage ??
                                 (e instanceof Error ? e.message : String(e));
-                        const stack = e instanceof Error && e.stack ? e.stack.split("\n")[1] : "";
-                        this.trace(`pull error: ${raw} ${stack}`);
+                        this.trace(`pull error: ${raw}`);
                 } finally {
                         this.busy = false;
+                        this.busySince = 0;
+                        if (this.pendingPush) {
+                                this.pendingPush = false;
+                                this.trace("push replay after pull");
+                                setTimeout(() => this.firePush(), 300);
+                        }
                 }
         }
 // ---------- watchdog ----------
@@ -289,8 +317,22 @@ export class RealtimeEngine {
                 if (this.watchdog) clearInterval(this.watchdog);
                 this.watchdog = setInterval(async () => {
                         try {
-                                // Stale-lock recovery: a hung pull (network stall inside
-                                // the kernel relay) must never block sync forever.
+                                // Stuck pipeline recovery: a stalled kernel-relay request
+                                // never settles, so SyncEngine's activeTask lock would
+                                // block all later pushes/pulls forever.
+                                const lockAge = this.engine.lockAgeMs();
+                                if (lockAge > 330000) {  // > pull 上限 300s+余量
+                                        this.trace(`watchdog: engine lock stale ${lockAge}ms`);
+                                        this.engine.forceReleaseLock("watchdog timeout");
+                                        this.busy = false;
+                                        this.busySince = 0;
+                                        if (this.pendingPush) {
+                                                this.pendingPush = false;
+                                                this.trace("watchdog: replay pending push");
+                                                setTimeout(() => this.firePush(), 500);
+                                        }
+                                }
+                                // Stale-lock recovery for our own flag.
                                 if (this.busy && this.busySince && Date.now() - this.busySince > 120000) {
                                         this.trace("watchdog: clearing stale busy lock");
                                         this.busy = false;
@@ -311,6 +353,33 @@ export class RealtimeEngine {
                                 this.trace("watchdog error: " + e);
                         }
                 }, WATCHDOG_MS);
+        }
+
+        /** Report local/remote file counts to the status bar (best effort). */
+        private async reportCounts(): Promise<void> {
+                if (!this.statusBar) return;
+                try {
+                        const base = `/repos/${this.config.username}/${this.config.repo}`;
+                        const refRes = await this.api.gh(`${base}/git/refs/heads/main`);
+                        const refJson = (await refRes.json()) as { object?: { sha?: string } };
+                        const sha = refJson.object?.sha;
+                        if (!sha) return;
+                        const cRes = await this.api.gh(`${base}/git/commits/${sha}`);
+                        const cJson = (await cRes.json()) as { tree?: { sha?: string } };
+                        const treeSha = cJson.tree?.sha;
+                        if (!treeSha) return;
+                        const tRes = await this.api.gh(`${base}/git/trees/${treeSha}?recursive=1`);
+                        const tJson = (await tRes.json()) as {
+                                tree?: { type: string; path: string }[];
+                        };
+                        const remote = (tJson.tree ?? []).filter(
+                                (x) => x.type === "blob" && x.path.startsWith("data/"),
+                        ).length;
+                        const local = Object.keys(this.ledger.getState()).length;
+                        this.statusBar.setCounts(local, remote);
+                } catch {
+                        /* status bar is cosmetic; never let it break sync */
+                }
         }
 
         // ---------- trace ----------

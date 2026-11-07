@@ -79,14 +79,38 @@ export class SyncEngine extends EventEmitter {
 		super();
 	}
 
-	// --------------------------------------------
-	// Main push/pull pipelines actions
-	// --------------------------------------------
+// --------------------------------------------
+        // Main push/pull pipelines actions
+        // --------------------------------------------
 
-	// push action pipeline
-	public async pushToGitHub(): Promise<SyncResult> {
-		if (this.activeTask) throw new SyncError(409, t("action.push"));
-		this.activeTask = "push";
+        private activeTaskSince = 0;
+
+        /**
+         * Force-release a stuck pipeline lock. Called by the realtime watchdog:
+         * when a kernel-relay request stalls, the promise inside push/pull never
+         * settles and `activeTask` would block every later operation forever.
+         */
+        public forceReleaseLock(reason: string): boolean {
+                if (!this.activeTask) return false;
+                console.warn(`[GitHub Sync] force-releasing stuck "${this.activeTask}" (${reason})`);
+                this.activeTask = null;
+                this.activeTaskSince = 0;
+                this.activeTaskSince = 0;
+                return true;
+        }
+
+        /** Age (ms) of the currently held pipeline lock, 0 when idle. */
+        public lockAgeMs(): number {
+                return this.activeTask && this.activeTaskSince
+                        ? Date.now() - this.activeTaskSince
+                        : 0;
+        }
+
+        // push action pipeline
+        public async pushToGitHub(): Promise<SyncResult> {
+                if (this.activeTask) throw new SyncError(409, t("action.push"));
+                this.activeTask = "push";
+                this.activeTaskSince = Date.now();
 
 		try {
 			this.emit(
@@ -139,6 +163,7 @@ export class SyncEngine extends EventEmitter {
 			throw this.formatApiError(error);
 		} finally {
 			this.activeTask = null;
+			this.activeTaskSince = 0;
 			// clear context after push
 			this.resetPipelineContext();
 		}
@@ -148,6 +173,7 @@ export class SyncEngine extends EventEmitter {
 	public async pullFromGitHub(): Promise<SyncResult> {
 		if (this.activeTask) throw new SyncError(409, t("action.pull"));
 		this.activeTask = "pull";
+            this.activeTaskSince = Date.now();
 		let stateUpdated = false;
 		let deletedCount: number;
 
@@ -213,6 +239,7 @@ export class SyncEngine extends EventEmitter {
 			throw this.formatApiError(error);
 		} finally {
 			this.activeTask = null;
+			this.activeTaskSince = 0;
 			this.resetPipelineContext();
 		}
 	}
@@ -744,11 +771,11 @@ export class SyncEngine extends EventEmitter {
         private async downloadAndWriteFiles(
                 toPull: { item: GitHubTreeItem; siPath: string; originalPath: string }[],
         ): Promise<boolean> {
-                // llxl0 fork: on mobile every GitHub call goes through the kernel
-                // relay (/api/network/forwardProxy) which serializes internally;
-                // hammering it with 5 parallel blobs caused transient failures.
+                // llxl0 fork: kernel relay (mobile) handles concurrent blob downloads fine —
+// bench on 14u: 16 parallel → 102ms/file, 613 files ≈ 63s. Serial was 5x slower
+// and made the first full pull exceed any sane timeout.
                 const isMobile = getFrontend().includes("mobile");
-                const CHUNK_SIZE_PULL = isMobile ? 1 : 5;
+                const CHUNK_SIZE_PULL = isMobile ? 16 : 8;
 		let stateUpdated = false;
 
 		for (let i = 0; i < toPull.length; i += CHUNK_SIZE_PULL) {
@@ -799,7 +826,7 @@ export class SyncEngine extends EventEmitter {
 				}),
 			);
 
-			await new Promise((r) => setTimeout(r, 30)); // Small throttle to prevent network saturation
+			await new Promise((r) => setTimeout(r, 10)); // light throttle; relay handles concurrency
 		}
 
 		return stateUpdated;
@@ -885,7 +912,33 @@ this.emit("progress", 85, t("progress.cleanup"), localPath);
 		return deletedCount;
 	}
 
-private async finalizePull(
+// Repair guard helper: rebuild this device's ledger from the remote tree so
+        // that unchanged files are no longer treated as "new" every round.
+        private async reseedLedgerFromRemote(): Promise<void> {
+                try {
+                        if (!this.lastCommitSha) return;
+                        const commit = await (await this.api.getCommit(this.lastCommitSha)).json();
+                        const tree = await this.api.getRemoteTree(commit.tree.sha);
+                        let seeded = 0;
+                        for (const item of tree) {
+                                if (item.type !== "blob") continue;
+                                if (!item.path.startsWith(`${SYNC_ROOT}/`)) continue;
+                                const relPath = item.path.slice(SYNC_ROOT.length + 1);
+                                if (shouldSkipPath(relPath, SKIP_ROOT_DIRS)) continue;
+                                // local sha unknown here → record remote sha on both
+                                // sides so the next diff sees "unchanged".
+                                this.ledger.updateFile(item.path, item.sha, item.sha);
+                                seeded++;
+                        }
+                        await this.ledger.save(this.lastCommitSha);
+                        console.warn(`[GitHub Sync] ledger reseeded with ${seeded} remote entries`);
+                        this.emit("progress", 100, t("ui.done"), `ledger reseeded: ${seeded}`);
+                } catch (e) {
+                        console.warn("[GitHub Sync] reseedLedgerFromRemote failed:", e);
+                }
+        }
+
+        private async finalizePull(
                 stateUpdated: boolean,
                 deletedCount: number,
                 pulledCount: number,
@@ -894,8 +947,21 @@ private async finalizePull(
                 this.pulledSyPaths = [];
                 this.deletedSyPaths = [];
                 console.debug(
-			`[GitHub Sync] finalizePull: stateUpdated=${stateUpdated}, deletedCount=${deletedCount}, pulledCount=${pulledCount}`,
-		);
+                    `[GitHub Sync] finalizePull: stateUpdated=${stateUpdated}, deletedCount=${deletedCount}, pulledCount=${pulledCount}`,
+            );
+
+            // Repair guard: an empty in-memory ledger means this device would treat every
+            // remote file as brand-new (full re-download every round → workspace churn
+            // → SiYuan reloads itself). Rebuild from the remote tree and persist it,
+            // otherwise the following save() writes the emptiness back to disk.
+            if (Object.keys(this.ledger.getState()).length === 0 && this.lastCommitSha) {
+                    console.warn("[GitHub Sync] empty ledger detected — reseeding from remote");
+                    await this.reseedLedgerFromRemote();
+                    return {
+                            status: "success",
+                            message: `ledger reseeded (${t("ui.done")})`,
+                    };
+            }
 
 		if (stateUpdated) {
 			console.debug(
@@ -1210,6 +1276,7 @@ private async finalizePull(
 			throw this.formatApiError(e);
 		} finally {
 			this.activeTask = null;
+			this.activeTaskSince = 0;
 		}
 	}
 }
