@@ -52,6 +52,16 @@ type TxnPayload = {
         data?: TxnItem[] | { transactions?: TxnItem[] };
 };
 
+/**
+ * Kernel broadcasts for document-level operations that do NOT go through
+ * /api/transactions: createDocWithMd / RenameDoc / RemoveDoc / MoveDoc emit
+ * their own `create` / `rename` / `remove` / `moveDoc` cmds (verified in
+ * kernel/model/push_reload.go PushCreate and file.go publishDocRename).
+ * The editor's file tree drives these, so without listening for them,
+ * creating a doc or renaming a title never synced.
+ */
+const DOC_CMDS = ["create", "rename", "remove", "moveDoc", "moveDocs"];
+
 export class RealtimeEngine {
         private plugin: Plugin;
         private engine: SyncEngine;
@@ -71,6 +81,7 @@ export class RealtimeEngine {
         /** Set when a push was requested while another op held `busy`. */
         private pendingPush = false;
         private wsHandler: (event: CustomEvent) => void;
+        private docHandler: (event: CustomEvent) => void;
 
         constructor(
                 plugin: Plugin,
@@ -83,6 +94,7 @@ export class RealtimeEngine {
                 setBusy(b: boolean): void;
                 markSynced(): void;
                 setCounts(local: number | null, remote: number | null): void;
+                setProgress(pct: number, text: string): void;
         },
         ) {
                 this.plugin = plugin;
@@ -93,6 +105,7 @@ export class RealtimeEngine {
                 this.config = config;
 
                 this.wsHandler = (data) => this.onWsMain(data);
+                this.docHandler = (data) => this.onDocEvent(data);
         }
 
         /** Called once from onload(). Safe to call again (idempotent). */
@@ -101,6 +114,16 @@ export class RealtimeEngine {
                 this.installEventHook();
                 this.startPoll();
                 this.startWatchdog();
+                // Forward the engine's progress events to the status bar so the
+                // user sees live "上传 45%" / "拉取 12/604" instead of just 同步中.
+                this.engine.on("progress", (pct: number, status: string, details?: string) => {
+                        const short = (status || "").replace(/\s+/g, " ").trim();
+                        const label = short.length > 16 ? short.slice(0, 16) : short;
+                        this.statusBar?.setProgress(
+                                pct,
+                                details && !details.startsWith(label) ? `${label} ${details}` : label || "同步",
+                        );
+                });
                 this.trace("realtime start poll=" + POLL_MS);
                 void this.reportCounts();
         }
@@ -110,6 +133,13 @@ export class RealtimeEngine {
                         this.plugin.eventBus.off("ws-main", this.wsHandler);
                 } catch {
                         /* not registered yet */
+                }
+                for (const cmd of DOC_CMDS) {
+                        try {
+                                this.plugin.eventBus.off(`ws-main`, this.docHandler);
+                        } catch {
+                                /* ignore */
+                        }
                 }
                 if (this.pushTimer) clearTimeout(this.pushTimer);
                 if (this.pollTimer) clearInterval(this.pollTimer);
@@ -125,6 +155,23 @@ export class RealtimeEngine {
                 } catch (e) {
                         this.trace("eventBus hook failed: " + e);
                 }
+                // ws-main carries ALL kernel broadcasts (app/src/index.ts
+                // msgCallback -> emitToPlugins("ws-main", data)) — including the
+                // doc-level create/rename/remove cmds. Filter by cmd here.
+                try {
+                        this.plugin.eventBus.on("ws-main", this.docHandler);
+                } catch (e) {
+                        this.trace("doc eventBus hook failed: " + e);
+                }
+        }
+
+        /** Doc-level broadcasts that bypass /api/transactions. */
+        private onDocEvent(event: CustomEvent): void {
+                const data = event.detail as { cmd?: string } | undefined;
+                if (!data?.cmd || !DOC_CMDS.includes(data.cmd)) return;
+                this.trace(`doc event: ${data.cmd}`);
+                if (this.pushTimer) clearTimeout(this.pushTimer);
+                this.pushTimer = setTimeout(() => this.firePush(), DEBOUNCE_MS);
         }
 
         private onWsMain(event: CustomEvent): void {

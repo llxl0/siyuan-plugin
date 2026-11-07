@@ -43,7 +43,8 @@ export class StatusBarUI {
     private update() {
         if (!this.statusBarEl) return;
         if (this.busy) {
-            this.statusBarEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;">🔄 同步中…</span>`;
+            this.statusBarEl.innerHTML =
+                `<span style="display:inline-flex;align-items:center;gap:4px;">${this.busyIcon} ${this.busyText}</span>`;
             return;
         }
         // Two pieces of info side by side:
@@ -117,12 +118,27 @@ export class StatusBarUI {
     }
 
     private busy = false;
+    private busyIcon = "🔄";
+    private busyText = "同步中…";
     private localCount: number | null = null;
     private remoteCount: number | null = null;
 
     /** Called by the realtime engine when a push/pull starts or finishes. */
     public setBusy(busy: boolean): void {
         this.busy = busy;
+        if (busy) {
+            // Reset the detail line at the start of every op.
+            this.busyIcon = "🔄";
+            this.busyText = "同步中…";
+        }
+        this.update();
+    }
+
+    /** Live progress (pct 0-100 + short label, e.g. "上传 3/17"). */
+    public setProgress(pct: number, text: string): void {
+        this.busy = true;
+        this.busyIcon = pct >= 100 ? "✅" : "🔄";
+        this.busyText = `${text} ${pct}%`;
         this.update();
     }
 
