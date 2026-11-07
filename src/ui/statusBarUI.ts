@@ -21,7 +21,10 @@ export class StatusBarUI {
         const tryAttach = (parent: Element) => {
             this.statusBarEl = document.createElement("span");
             this.statusBarEl.id = "siyuan-github-sync-status";
-            this.statusBarEl.style.cssText = "font-size:11px;opacity:.65;margin:0 8px;color:var(--b3-theme-on-background);";
+            // white-space:nowrap — the elapsed suffix grows every second
+            // ("59秒前"→"1分0秒前"); without it the bar wraps to 2 lines
+            // on narrow (mobile) status bars.
+            this.statusBarEl.style.cssText = "font-size:11px;opacity:.65;margin:0 8px;color:var(--b3-theme-on-background);white-space:nowrap;display:inline-block;";
             this.update();
             parent.appendChild(this.statusBarEl);
             return true;
@@ -32,7 +35,7 @@ export class StatusBarUI {
 
         this.statusBarEl = document.createElement("div");
         this.statusBarEl.id = "siyuan-github-sync-status";
-        this.statusBarEl.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%);z-index:9999;font-size:11px;opacity:.65;pointer-events:none;color:var(--b3-theme-on-background);line-height:24px;";
+        this.statusBarEl.style.cssText = "position:fixed;bottom:0;left:50%;transform:translateX(-50%);z-index:9999;font-size:11px;opacity:.65;pointer-events:none;color:var(--b3-theme-on-background);line-height:24px;white-space:nowrap;";
         this.update();
         document.body.appendChild(this.statusBarEl);
     }
