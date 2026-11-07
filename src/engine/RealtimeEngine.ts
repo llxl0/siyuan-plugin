@@ -376,10 +376,10 @@ export class RealtimeEngine {
                         const tJson = (await tRes.json()) as {
                                 tree?: { type: string; path: string }[];
                         };
-                        // Same ignore rules the engine uses for pull: never count
-                        // internal paths (storage/.siyuan/conf/temp) or plugin
-                        // self-files as syncable content.
-                        const IGNORED = /^(data\/(\.siyuan|storage|conf|temp)\/|data\/plugins\/siyuan-github-sync\/)/;
+                        // Same skip rules as the engine (SKIP_ROOT_DIRS):
+                        // plugins/conf/.siyuan/storage/emojis/public/templates/
+                        // widgets/history are engine-wide excluded from sync.
+                        const IGNORED = /^data\/(plugins|conf|\.siyuan|storage|emojis|public|templates|widgets|history)\//;
                         const remote = (tJson.tree ?? []).filter(
                                 (x) => x.type === "blob" && x.path.startsWith("data/") && !IGNORED.test(x.path),
                         ).length;
