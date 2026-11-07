@@ -795,8 +795,13 @@ export class SyncEngine extends EventEmitter {
 			// concurrent file pulling through github API
 			await Promise.all(
 				chunk.map(async ({ item, siPath, originalPath }) => {
-					const content = await this.api.downloadBlob(item.sha);
-					if (content && content.byteLength > 0) {
+const content = await this.api.downloadBlob(item.sha);
+                                                        // byteLength === 0 is LEGITIMATE: empty
+                                                        // canvas/asset files are real blobs
+                                                        // (sha e69de29b...). Skipping them left
+                                                        // the ledger permanently missing them
+                                                        // and showed a phantom diff in the bar.
+                                                        if (content) {
 						try {
                                                         const decrypted = await this.crypto.decrypt(content);
                                                         const writeSuccess = await this.siyuan.putFile(siPath, decrypted);
