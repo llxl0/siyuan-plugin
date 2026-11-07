@@ -14,6 +14,7 @@ import { SyncEngine } from "./engine/SyncEngine";
 import { SyncStateLedger } from "./engine/SyncStateLedger";
 import { CryptoModule } from "./engine/CryptoModule";
 import { RealtimeEngine } from "./engine/RealtimeEngine";
+import { MdMirror } from "./engine/MdMirror";
 
 import { GitHubAPI } from "./api/Github-api";
 import { SiYuanAPI } from "./api/Siyuan-api";
@@ -36,6 +37,7 @@ export default class GitHubSyncPlugin extends Plugin {
         private ledger!: SyncStateLedger;
         private statusBar!: StatusBarUI;
         private realtime!: RealtimeEngine;
+        private mdMirror?: MdMirror;
         /** True while a user-initiated (button) sync runs — gates the progress dialog. */
         public isManualSync = false;
         public config: GitPluginConfig = { ...DEFAULT_CONFIG };
@@ -120,10 +122,22 @@ export default class GitHubSyncPlugin extends Plugin {
                         this.statusBar,
                 );
                 this.realtime.start();
+
+                // [rt32] Optional md-repo mirror (mobile project-docs bridge).
+                if (this.config.mdRepo) {
+                        this.mdMirror = new MdMirror(
+                                this,
+                                api,
+                                siyuan,
+                                this.config,
+                        );
+                        this.mdMirror.start();
+                }
         }
 
         async onunload() {
                 this.realtime?.stop();
+                this.mdMirror?.stop();
                 this.statusBar?.destroy();
         }
 }

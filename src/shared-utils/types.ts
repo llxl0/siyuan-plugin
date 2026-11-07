@@ -43,6 +43,7 @@ export const SKIP_ROOT_DIRS = [
 	"widgets",
 	"siyuan-github-sync",
 	"history",
+	"repo-docs",
 ];
 
 /**
@@ -108,6 +109,14 @@ export interface GitPluginConfig {
 	lastSync?: number;
 	/** Client-side encryption password (AES-GCM). Omitted when disabled. */
 	encryptionPassword?: string;
+	/** [rt32] External markdown repo ("owner/repo") mirrored into mdDir. */
+	mdRepo?: string;
+	/** [rt32] Workspace dir (under data/) where the md repo is mirrored. */
+	mdDir?: string;
+	/** [rt32] Branch of the md repo. Default "main". */
+	mdBranch?: string;
+	/** [rt33] Enable md push-back (mobile only; PC junction uses local git). */
+	mdPush?: boolean;
 }
 
 /** Sensible defaults applied when no saved configuration exists yet. */
