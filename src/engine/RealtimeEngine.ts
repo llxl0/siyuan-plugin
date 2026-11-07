@@ -376,15 +376,23 @@ export class RealtimeEngine {
                         const tJson = (await tRes.json()) as {
                                 tree?: { type: string; path: string }[];
                         };
-                        // Same skip rules as the engine (SKIP_ROOT_DIRS):
-                        // plugins/conf/.siyuan/storage/emojis/public/templates/
-                        // widgets/history are engine-wide excluded from sync.
-                        const IGNORED = /^data\/(plugins|conf|\.siyuan|storage|emojis|public|templates|widgets|history)\//;
+                        // Same skip rules as the engine's fetchRemoteTree() which
+                        // uses shouldSkipPath(relPath, SKIP_ROOT_DIRS) before the
+                        // tree ever reaches the pull plan. Counting must mirror
+                        // that filter or static files show as phantom diffs.
+                        const SKIP = ["plugins", "conf", ".siyuan", "storage", "emojis",
+                                "public", "templates", "widgets", "history"];
+                        const inSkippedRoot = (p: string) => {
+                                const rel = p.slice("data/".length);
+                                return SKIP.some(
+                                        (d) => rel === d || rel.startsWith(d + "/"),
+                                );
+                        };
                         const remote = (tJson.tree ?? []).filter(
-                                (x) => x.type === "blob" && x.path.startsWith("data/") && !IGNORED.test(x.path),
+                                (x) => x.type === "blob" && x.path.startsWith("data/") && !inSkippedRoot(x.path),
                         ).length;
                         const local = Object.keys(this.ledger.getState()).filter(
-                                (p) => !IGNORED.test(p),
+                                (p) => !inSkippedRoot(p),
                         ).length;
                         this.statusBar.setCounts(local, remote);
                 } catch {
