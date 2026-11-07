@@ -355,7 +355,11 @@ export class RealtimeEngine {
                 }, WATCHDOG_MS);
         }
 
-        /** Report local/remote file counts to the status bar (best effort). */
+        /** Report local/remote file counts to the status bar (best effort).
+         *  Both sides must use the SAME accounting, otherwise static files
+         *  (plugin binaries, ignored storage) show up as phantom diffs:
+         *  - remote: only data/ blobs, excluding ignored prefixes
+         *  - local : ledger tracks exactly the same set (engine's sync scope) */
         private async reportCounts(): Promise<void> {
                 if (!this.statusBar) return;
                 try {
@@ -372,10 +376,16 @@ export class RealtimeEngine {
                         const tJson = (await tRes.json()) as {
                                 tree?: { type: string; path: string }[];
                         };
+                        // Same ignore rules the engine uses for pull: never count
+                        // internal paths (storage/.siyuan/conf/temp) or plugin
+                        // self-files as syncable content.
+                        const IGNORED = /^(data\/(\.siyuan|storage|conf|temp)\/|data\/plugins\/siyuan-github-sync\/)/;
                         const remote = (tJson.tree ?? []).filter(
-                                (x) => x.type === "blob" && x.path.startsWith("data/"),
+                                (x) => x.type === "blob" && x.path.startsWith("data/") && !IGNORED.test(x.path),
                         ).length;
-                        const local = Object.keys(this.ledger.getState()).length;
+                        const local = Object.keys(this.ledger.getState()).filter(
+                                (p) => !IGNORED.test(p),
+                        ).length;
                         this.statusBar.setCounts(local, remote);
                 } catch {
                         /* status bar is cosmetic; never let it break sync */
