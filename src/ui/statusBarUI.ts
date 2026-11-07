@@ -43,24 +43,30 @@ export class StatusBarUI {
             this.statusBarEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;">🔄 同步中…</span>`;
             return;
         }
-        const local = this.localCount;
-        const remote = this.remoteCount;
-        if (remote === null) {
-            this.statusBarEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;" title="等待首次同步">🔄 待同步</span>`;
-            return;
-        }
-        // "local / remote" — shows at a glance whether both sides carry the
-        // same number of files. Equal ⇒ in sync; local<remote ⇒ pull pending;
-        // local>remote ⇒ push pending.
+        // Two pieces of info side by side:
+        //   ① local/remote file counts — "where is sync at"
+        //   ② last sync time           — "how long since it ran"
         let icon = "🔄";
         let hint = "本地 / 远端 文件数（一致即已同步）";
-        if (local !== null && local !== remote) {
+        const local = this.localCount;
+        const remote = this.remoteCount;
+        if (local !== null && remote !== null && local !== remote) {
             icon = local < remote ? "⬇️" : "⬆️";
             hint = local < remote ? `待拉取 ${remote - local} 个文件` : `待推送 ${local - remote} 个文件`;
         }
         const l = local === null ? "--" : String(local);
+        const r = remote === null ? "--" : String(remote);
+        let timePart = "";
+        if (this.config.lastSync) {
+            const d = new Date(this.config.lastSync);
+            const hh = String(d.getHours()).padStart(2, "0");
+            const mm = String(d.getMinutes()).padStart(2, "0");
+            const dd = String(d.getDate()).padStart(2, "0");
+            const mo = String(d.getMonth() + 1).padStart(2, "0");
+            timePart = ` · ${dd}/${mo} ${hh}:${mm}`;
+        }
         this.statusBarEl.innerHTML =
-            `<span style="display:inline-flex;align-items:center;gap:4px;" title="${hint}">${icon} ${l}/${remote}</span>`;
+            `<span style="display:inline-flex;align-items:center;gap:4px;" title="${hint} · 悬停查看最后同步时间">${icon} ${l}/${r}${timePart}</span>`;
     }
 
     private busy = false;
