@@ -29,18 +29,27 @@ const POLL_MS = 10000; // ETag poll interval (304s are free)
 const WATCHDOG_MS = 15000; // re-arm interval
 const TRACE_PATH = "temp/gs_realtime.log";
 
+/**
+ * Kernel transaction shapes — these mirror the Go structs' **json tags**, which
+ * are lowerCamelCase (`doOperations`, `action`, `id`, `rootID`). Reading them as
+ * capitalized `DoOperations`/`Action` yields undefined and silently drops every
+ * event — that bug is why AI-authored writes never triggered a push.
+ */
 type TxnOperation = {
-        Action?: string;
-        RootID?: string;
+        action?: string;
+        id?: string;
+        rootID?: string;
+};
+
+/** One kernel transaction: a batch of block-level operations. */
+type TxnItem = {
+        doOperations?: TxnOperation[];
+        DoOperations?: TxnOperation[]; // tolerated: older/manual payloads
 };
 
 type TxnPayload = {
         cmd?: string;
-        data?: {
-                transactions?: {
-                        DoOperations?: TxnOperation[];
-                }[];
-        };
+        data?: TxnItem[] | { transactions?: TxnItem[] };
 };
 
 export class RealtimeEngine {
@@ -57,7 +66,6 @@ export class RealtimeEngine {
         private etag: string | null = null;
         private busy = false;
         private lastKnownRemoteSha: string | null = null;
-        private sinceLastPush = 0;
         private wsHandler: (event: CustomEvent) => void;
 
         constructor(
@@ -113,10 +121,25 @@ export class RealtimeEngine {
                 const data = event.detail as TxnPayload | undefined;
                 // Kernel broadcasts every editor transaction with cmd "transactions"
                 if (data?.cmd !== "transactions") return;
-                const txns = data.data?.transactions ?? [];
-                const relevant = txns.some((t) =>
-                        (t.DoOperations ?? []).some((op) => !!op.RootID),
-                );
+                // IMPORTANT: kernel sets `evt.Data = transactions` (a bare array).
+                // There is no `{transactions: [...]}` wrapper — reading it as an
+                // object silently produced an empty list and dropped every push.
+                const dat: unknown = data.data;
+                const txns: TxnItem[] = Array.isArray(dat)
+                        ? (dat as TxnItem[])
+                        : ((dat as { transactions?: TxnItem[] })?.transactions ?? []);
+                this.trace(`txn recv=${txns.length}`);
+                const MUTATING = /^(update|insert|delete|move|append|prepend|fold|unfold)/i;
+                const relevant = txns.some((t) => {
+                        const ops = t.doOperations ?? t.DoOperations ?? [];
+                        return ops.some(
+                                (op) =>
+                                        !!op.id ||
+                                        !!op.rootID ||
+                                        MUTATING.test(op.action ?? ""),
+                        );
+                });
+                this.trace(`txn relevant=${relevant}`);
                 if (!relevant) return;
 
                 if (this.pushTimer) clearTimeout(this.pushTimer);
@@ -126,7 +149,6 @@ export class RealtimeEngine {
         private async firePush(): Promise<void> {
                 if (this.busy) return;
                 this.busy = true;
-                this.sinceLastPush = 0;
                 try {
                         const r = await this.engine.pushToGitHub();
                         if (r.status === "success") this.lastKnownRemoteSha = null;
@@ -259,18 +281,6 @@ export class RealtimeEngine {
                                 } catch {
                                         this.trace("watchdog: hook reinstall failed");
                                 }
-                                // Safety net: if a kernel-API write bypassed the
-                                // frontend (no ws-main broadcast), the local tree
-                                // may hold unsynced changes. Detect cheaply by
-                                // comparing our ledger head with the remote head;
-                                // if they match but SiYuan auto-stat shows drift,
-                                // fall back to a periodic push every 5 minutes.
-                                this.sinceLastPush += WATCHDOG_MS;
-                                if (this.sinceLastPush >= 300000) {
-                                        this.sinceLastPush = 0;
-                                        this.trace("watchdog: periodic push safety net");
-                                        await this.firePush();
-                                }
                         } catch (e) {
                                 this.trace("watchdog error: " + e);
                         }
@@ -279,14 +289,37 @@ export class RealtimeEngine {
 
         // ---------- trace ----------
 
-        private async trace(msg: string): Promise<void> {
+        private traceChain: Promise<void> = Promise.resolve();
+
+        /** Serialized append-only trace (concurrent calls would otherwise
+         *  read-modify-write the same file and lose lines). */
+        private trace(msg: string): Promise<void> {
+                this.traceChain = this.traceChain.then(() => this.traceOnce(msg));
+                return this.traceChain;
+        }
+
+        private async traceOnce(msg: string): Promise<void> {
                 try {
                         const line = `${new Date().toISOString()} ${msg}\n`;
+                        let prev = "";
+                        try {
+                                const r = await fetch("/api/file/getFile", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ path: TRACE_PATH }),
+                                });
+                                if (r.ok) {
+                                        prev = await r.text();
+                                        if (prev.length > 16384) prev = "";
+                                }
+                        } catch {
+                                /* file absent on first write */
+                        }
                         const fd = new FormData();
                         fd.append("path", TRACE_PATH);
                         fd.append("isDir", "false");
                         fd.append("modTime", Date.now().toString());
-                        fd.append("file", new Blob([line]));
+                        fd.append("file", new Blob([prev + line]));
                         await fetch("/api/file/putFile", { method: "POST", body: fd });
                 } catch {
                         /* tracing must never break sync */
