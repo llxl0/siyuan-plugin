@@ -66,7 +66,10 @@ export default class GitHubSyncPlugin extends Plugin {
                 this.ui.registerSettings();
 
                 this.statusBar = new StatusBarUI(this, this.config);
-                setTimeout(() => this.statusBar.attach(), 1000);
+                setTimeout(() => {
+                        this.statusBar.attach();
+                        this.statusBar.startTicker();
+                }, 1000);
 
                 this.addTopBar({
                         icon: "iconGitHubUpload",
@@ -121,5 +124,6 @@ export default class GitHubSyncPlugin extends Plugin {
 
         async onunload() {
                 this.realtime?.stop();
+                this.statusBar?.destroy();
         }
 }

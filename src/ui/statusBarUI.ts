@@ -61,12 +61,56 @@ export class StatusBarUI {
             const d = new Date(this.config.lastSync);
             const hh = String(d.getHours()).padStart(2, "0");
             const mm = String(d.getMinutes()).padStart(2, "0");
+            const ss = String(d.getSeconds()).padStart(2, "0");
             const dd = String(d.getDate()).padStart(2, "0");
             const mo = String(d.getMonth() + 1).padStart(2, "0");
-            timePart = ` · ${dd}/${mo} ${hh}:${mm}`;
+            timePart = ` · ${dd}/${mo} ${hh}:${mm}:${ss}<span id="gs-sync-ago"></span>`;
+        } else {
+            timePart = ` · 未同步过`;
         }
         this.statusBarEl.innerHTML =
-            `<span style="display:inline-flex;align-items:center;gap:4px;" title="${hint} · 悬停查看最后同步时间">${icon} ${l}/${r}${timePart}</span>`;
+            `<span style="display:inline-flex;align-items:center;gap:4px;" title="${hint}">${icon} ${l}/${r}${timePart}</span>`;
+        this.refreshAgo();
+    }
+
+    /** Format an elapsed duration compactly in Chinese. */
+    private fmtElapsed(ms: number): string {
+        const s = Math.floor(ms / 1000);
+        if (s < 60) return `${s}秒前`;
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m}分${s % 60}秒前`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h}小时${m % 60}分前`;
+        return `${Math.floor(h / 24)}天${h % 24}小时前`;
+    }
+
+    /** Update only the elapsed-suffix span — avoids re-rendering the whole bar. */
+    private refreshAgo(): void {
+        const el = document.getElementById("gs-sync-ago");
+        if (!el) return;
+        if (this.config.lastSync) {
+            el.textContent = `（${this.fmtElapsed(Date.now() - this.config.lastSync)}）`;
+        } else {
+            el.textContent = "";
+        }
+    }
+
+    private ticker: number | null = null;
+
+    /** 1-second ticker that keeps the elapsed-time suffix live. */
+    public startTicker(): void {
+        if (this.ticker !== null) return;
+        this.ticker = window.setInterval(() => {
+            if (!this.busy && this.config.lastSync) this.refreshAgo();
+        }, 1000);
+    }
+
+    /** Stop the ticker (plugin unload). */
+    public destroy(): void {
+        if (this.ticker !== null) {
+            window.clearInterval(this.ticker);
+            this.ticker = null;
+        }
     }
 
     private busy = false;
