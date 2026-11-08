@@ -61,6 +61,11 @@ type TxnPayload = {
  * creating a doc or renaming a title never synced.
  */
 const DOC_CMDS = ["create", "rename", "remove", "moveDoc", "moveDocs"];
+/** Notebook-level cmds (rt36): createNotebook emits createBox, removeNotebook
+ *  emits removeBox, renameNotebook emits renameNotebook — all PushModeBroadcast
+ *  (kernel/api/notebook.go:129). Without these, deleting a whole notebook
+ *  never triggered a push and the remote kept the deleted files. */
+const BOX_CMDS = ["createBox", "removeBox", "renameNotebook"];
 
 export class RealtimeEngine {
         private plugin: Plugin;
@@ -168,7 +173,8 @@ export class RealtimeEngine {
         /** Doc-level broadcasts that bypass /api/transactions. */
         private onDocEvent(event: CustomEvent): void {
                 const data = event.detail as { cmd?: string } | undefined;
-                if (!data?.cmd || !DOC_CMDS.includes(data.cmd)) return;
+                if (!data?.cmd) return;
+                if (!DOC_CMDS.includes(data.cmd) && !BOX_CMDS.includes(data.cmd)) return;
                 this.trace(`doc event: ${data.cmd}`);
                 if (this.pushTimer) clearTimeout(this.pushTimer);
                 this.pushTimer = setTimeout(() => this.firePush(), DEBOUNCE_MS);

@@ -39,6 +39,7 @@ export class MdMirror {
         private busy = false;
         private pushEnabled = false;
 
+
         constructor(
                 plugin: import("siyuan").Plugin,
                 api: GitHubAPI,
