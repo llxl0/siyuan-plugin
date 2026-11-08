@@ -15,8 +15,12 @@ export class StatusBarUI {
     }
 
     public attach() {
-        const old = document.getElementById("siyuan-github-sync-status");
-        if (old) old.remove();
+        // Remove ALL stale elements with our id (previous runs may have
+        // attached to body when #statusBar wasn't ready yet - two counters
+        // blinking alternately was the visible symptom on tablets).
+        document
+            .querySelectorAll("#siyuan-github-sync-status")
+            .forEach((el) => el.remove());
 
         const tryAttach = (parent: Element) => {
             this.statusBarEl = document.createElement("span");
@@ -105,6 +109,12 @@ export class StatusBarUI {
     public startTicker(): void {
         if (this.ticker !== null) return;
         this.ticker = window.setInterval(() => {
+            // Self-heal: SiYuan mobile rebuilds its dock and can detach or
+            // duplicate our element; re-attach if it left the DOM.
+            if (this.statusBarEl && !document.contains(this.statusBarEl)) {
+                this.attach();
+                return;
+            }
             if (!this.busy && this.config.lastSync) this.refreshAgo();
         }, 1000);
     }
