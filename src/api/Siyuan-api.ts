@@ -31,8 +31,9 @@ export class SiYuanAPI {
 			return [];
 		}
 	}
-
-	/** Read a file from the workspace and return its raw bytes (`/api/file/getFile`). */
+/** Read a file from the workspace and return its raw bytes (`/api/file/getFile`).
+ *  NOTE: SiYuan's kernel returns HTTP 200 with {"code":404,...} JSON for
+ *  missing files — never trust the HTTP status alone. */
 	public async getFile(path: string): Promise<ArrayBuffer | null> {
 		try {
 			const res = await fetch("/api/file/getFile", {
@@ -40,9 +41,33 @@ export class SiYuanAPI {
 				body: JSON.stringify({ path }),
 			});
 			if (res.status >= 200 && res.status < 300) {
-				return await res.arrayBuffer();
+				const buf = await res.arrayBuffer();
+				// Kernel quirk: missing files come back as HTTP 200 with a
+				// small {"code":404,"msg":"open ...: no such file"} JSON body.
+				// Treat any such envelope as "file absent".
+				if (buf.byteLength < 512 && buf.byteLength > 0) {
+					const head = new TextDecoder()
+						.decode(buf.slice(0, 24))
+						.trimStart();
+					if (head.startsWith('{"code"')) {
+						try {
+							const j = JSON.parse(new TextDecoder().decode(buf));
+							if (typeof j.code === "number" && j.code !== 0) {
+								console.warn(
+									`[GitHub Sync] getFile kernel-rejected ${path}: code=${j.code}`,
+								);
+								return null;
+							}
+						} catch {
+							/* not the error envelope — treat as real content */
+						}
+					}
+				}
+				return buf;
 			} else {
-				console.warn(`[GitHub Sync] getFile HTTP ${res.status} for ${path}`);
+				console.warn(
+					`[GitHub Sync] getFile HTTP ${res.status} for ${path}`,
+				);
 				return null;
 			}
 		} catch (err) {
@@ -50,7 +75,6 @@ export class SiYuanAPI {
 			return null;
 		}
 	}
-
 	/** Write a file to the workspace (`/api/file/putFile`, multipart upload). */
 	public async putFile(path: string, content: ArrayBuffer): Promise<boolean> {
 		try {

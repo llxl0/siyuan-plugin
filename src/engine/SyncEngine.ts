@@ -751,6 +751,7 @@ for (let i = 0; i < plan.toUpload.length; i++) {
 
 					const remoteSynced = this.ledger.getRemoteSha(originalPath);
 					const localSynced = this.ledger.getLocalSha(originalPath);
+					
 
 					// Compare actual local content to prevent ghost conflicts if a local file was deleted
 					const localContent = await this.siyuan.getFile(siPath);
@@ -760,17 +761,19 @@ for (let i = 0; i < plan.toUpload.length; i++) {
 							: "";
 
 if (remoteSynced !== item.sha || localSha !== localSynced) {
-                                                // RACE GUARD (rt31): if local content differs from
-                                                // what we last synced, this file may carry un-pushed
-                                                // local edits (kernel flushed the tree AFTER our
-                                                // last push read it). Pulling would clobber them.
-                                                // Skip; the next push uploads the local version.
-                                                if (localSha && localSha !== localSynced) {
-                                                        return;
-                                                }
-                                                toPull.push({ item, siPath, originalPath });
-                                        }
-                                        processed++;
+						// RACE GUARD (rt31): if local content differs from
+						// what we last synced, this file may carry un-pushed
+						// local edits (kernel flushed the tree AFTER our
+						// last push read it). Pulling would clobber them.
+						// Skip; the next push uploads the local version.
+						if (localSha && localSha !== localSynced) {
+
+							return;
+						}
+
+						toPull.push({ item, siPath, originalPath });
+					}
+					processed++;
 				}),
 			);
 
