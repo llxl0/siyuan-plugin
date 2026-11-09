@@ -1,6 +1,6 @@
 {
   "name": "siyuan-github-sync",
-  "version": "1.0.0",
+  "version": "4.0.4-rt40",
   "description": "SiYuan plugin to sync notes with a GitHub repository via the GitHub REST API",
   "scripts": {
     "dev": "webpack --config webpack.config.js --mode development --watch",

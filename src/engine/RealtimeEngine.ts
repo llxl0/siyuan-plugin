@@ -119,6 +119,13 @@ export class RealtimeEngine {
                 this.installEventHook();
                 this.startPoll();
                 this.startWatchdog();
+                // privacy-space: refresh locked-notebook set on boot and every
+                // poll cycle so freshly locked notebooks stop being pushed.
+                this.siyuan.refreshPrivacyLocks().catch(() => {});
+                setInterval(
+                        () => this.siyuan.refreshPrivacyLocks().catch(() => {}),
+                        30000,
+                );
                 // Forward the engine's progress events to the status bar so the
                 // user sees live "上传 45%" / "拉取 12/604" instead of just 同步中.
                 this.engine.on("progress", (pct: number, status: string, details?: string) => {

@@ -18,8 +18,36 @@ import {
 import { shouldSkipPath } from "../shared-utils/utils";
 
 export class SiYuanAPI {
-	/** List the entries of a workspace directory (`/api/file/readDir`). */
-	public async readDir(path: string): Promise<SiYuanDirEntry[]> {
+        /** Notebook ids currently locked by privacy-space (updated by engine). */
+        public privacyLocks: Set<string> = new Set();
+
+        /** Load locked-notebook ids from the privacy-space registry. */
+        public async refreshPrivacyLocks(): Promise<void> {
+                try {
+                        const res = await fetch("/api/file/getFile", {
+                                method: "POST",
+                                body: JSON.stringify({
+                                        path: "/data/storage/privacy-space.json",
+                                }),
+                        });
+                        if (!res.ok) {
+                                this.privacyLocks.clear();
+                                return;
+                        }
+                        const text = await res.text();
+                        const reg = JSON.parse(text || "{}");
+                        this.privacyLocks = new Set(
+                                (reg.notebooks || [])
+                                        .filter((n: any) => n.locked)
+                                        .map((n: any) => n.box as string),
+                        );
+                } catch {
+                        this.privacyLocks.clear();
+                }
+        }
+
+        /** List the entries of a workspace directory (`/api/file/readDir`). */
+        public async readDir(path: string): Promise<SiYuanDirEntry[]> {
 		try {
 			const res = await fetch("/api/file/readDir", {
 				method: "POST",
@@ -426,10 +454,19 @@ export class SiYuanAPI {
 				? gp.slice(SYNC_ROOT.length + 1)
 				: e.name;
 
-			if (shouldSkipPath(relPath, SKIP_ROOT_DIRS)) continue;
-			if (SKIP_PATH_FRAGMENTS.some((f) => sp.includes(f))) continue;
-			if (LOCKED_EXTENSIONS.some((ext) => e.name.toLowerCase().endsWith(ext)))
-				continue;
+                        if (shouldSkipPath(relPath, SKIP_ROOT_DIRS)) continue;
+                        if (SKIP_PATH_FRAGMENTS.some((f) => sp.includes(f))) continue;
+                        if (LOCKED_EXTENSIONS.some((ext) => e.name.toLowerCase().endsWith(ext)))
+                                continue;
+
+                        // privacy-space integration: at the `data/<box>` level,
+                        // skip any notebook marked locked in the registry.
+                        if (
+                                siBase === "/data" &&
+                                this.privacyLocks &&
+                                this.privacyLocks.has(e.name)
+                        )
+                                continue;
 
 			if (e.isDir) {
 				files.push(...(await this.collectDir(sp, gp)));

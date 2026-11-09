@@ -68,9 +68,21 @@ export function shouldSkipPath(
 ): boolean {
 	const normalizedPath = relativePath.replace(/^\//, "");
 
+	// privacy-space: locked notebooks (listed in data/storage/privacy-space.json)
+	// must never be pushed. The registry is checked by the caller layer via
+	// privacyLocks parameter — here we also honor inline "priv:<box>" rules.
+	const privLocks = skipRules.filter((d) => d.startsWith("priv:")).map((d) => d.slice(5));
+	if (privLocks.length > 0) {
+		for (const box of privLocks) {
+			if (normalizedPath === box || normalizedPath.startsWith(box + "/")) {
+				return true;
+			}
+		}
+	}
+
 	const includes = skipRules
-		.filter((d) => d.startsWith("!"))
-		.map((d) => d.slice(1));
+			.filter((d) => d.startsWith("!"))
+			.map((d) => d.slice(1));
 	const excludes = skipRules.filter((d) => !d.startsWith("!"));
 
 	// 1. Explicit inclusions bypass exclusions
