@@ -117,6 +117,14 @@ export interface GitPluginConfig {
 	mdBranch?: string;
 	/** [rt33] Enable md push-back (mobile only; PC junction uses local git). */
 	mdPush?: boolean;
+	/** [rt42] Sync transport: "off" | "lan" | "cloud" (default cloud = GitHub). */
+	syncMode?: "off" | "lan" | "cloud";
+	/** [rt42] Local kernel port for LAN sync (both sides usually 6806). */
+	lanPort?: number;
+	/** [rt42] LAN peers, e.g. ["192.168.1.23", "192.168.1.24"]. */
+	lanPeers?: string[];
+	/** [rt43] Per-notebook sync-mode overrides. Missing key = inherit global syncMode. */
+	nbSyncModes?: Record<string, "off" | "lan" | "cloud">;
 }
 
 /** Sensible defaults applied when no saved configuration exists yet. */
@@ -127,6 +135,9 @@ export const DEFAULT_CONFIG: GitPluginConfig = {
 	groqKey: "",
 	showDiff: true,
 	language: "en",
+	syncMode: "cloud" as const,
+	lanPort: 6806,
+	lanPeers: [],
 };
 
 /**
@@ -300,6 +311,8 @@ export interface SyncedState {
 export interface SyncResult {
     status: "success" | "error";
     message: string;
+
+	skipped?: boolean;
 }
 
 

@@ -210,13 +210,37 @@ export class RealtimeEngine {
                         );
                 });
                 this.trace(`txn relevant=${relevant}`);
+                // [rt43] remember which notebooks were touched
+                this.pendingBoxes.clear();
+                for (const t of txns) {
+                        for (const op of t.doOperations ?? t.DoOperations ?? []) {
+                                const box = (op as any)?.box || (op as any)?.notebook;
+                                if (box) this.pendingBoxes.add(String(box));
+                        }
+                }
                 if (!relevant) return;
 
                 if (this.pushTimer) clearTimeout(this.pushTimer);
                 this.pushTimer = setTimeout(() => this.firePush(), DEBOUNCE_MS);
         }
 
+        /** [rt43] Notebook ids touched by transactions since last push. */
+        private pendingBoxes = new Set<string>();
+
+        /** [rt43] Notebook ids touched since last push. */
+        private collectPendingBoxes(): string[] {
+                return [...this.pendingBoxes];
+        }
+
         private async firePush(): Promise<void> {
+                // [rt43] per-notebook gate: overrides win, global fallback
+                const overrides = this.config.nbSyncModes || {};
+                const boxes = this.collectPendingBoxes();
+                if (boxes.length === 0) {
+                        if ((this.config.syncMode || "cloud") !== "cloud") return;
+                } else if (boxes.every((b) => (overrides[b] || this.config.syncMode || "cloud") !== "cloud")) {
+                        return;
+                }
                 // Don't drop the event when another op is running — remember it and
                 // replay once the current op finishes (a dropped event = lost sync).
                 if (this.busy) {

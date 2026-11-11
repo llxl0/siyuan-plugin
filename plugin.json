@@ -1,8 +1,8 @@
 {
-  "name": "siyuan-github-sync",
-  "author": "Cyprien63 & Luizo",
-  "url": "https://github.com/cyprien63/siyuan-plugin",
-  "version": "4.0.4",
+  "name": "siyuan-github-sync-rt",
+  "author": "llxl0",
+  "url": "https://github.com/llxl0/siyuan-plugin",
+  "version": "4.0.4-rt46",
   "minAppVersion": "3.6.4",
   "backends": [
     "windows",
@@ -19,22 +19,17 @@
     "browser-mobile"
   ],
   "displayName": {
-    "default": "GitHub Sync",
-    "zh_CN": "GitHub 同步"
+    "default": "GitHub Sync RT",
+    "zh_CN": "GitHub 同步 RT"
   },
   "description": {
-    "default": "Sync SiYuan notes with a GitHub repository. Incremental push/pull, 3-way merge, commit history, restore, Groq AI commit messages.",
-    "zh_CN": "将思源笔记与 GitHub 仓库同步。增量推送/拉取、三方合并、提交历史、恢复、Groq AI 提交消息。"
+    "default": "Realtime GitHub sync for SiYuan: transaction-driven push (2s debounce), merge-based pull, recent-docs cross-device sync. Fork of Cyprien63/siyuan-plugin, heavily rebuilt.",
+    "zh_CN": "思源笔记实时 GitHub 同步：事务驱动推送（2 秒防抖）、合并式拉取、最近文档跨端同步。基于 Cyprien63/siyuan-plugin 二次开发。"
   },
   "readme": {
     "default": "README.md"
   },
-  "funding": {
-    "custom": [
-      "https://paypal.me/CyprienPisicchio",
-      "https://paypal.me/luizooo"
-    ]
-  },
+  "funding": {},
   "keywords": [
     "sync",
     "github",

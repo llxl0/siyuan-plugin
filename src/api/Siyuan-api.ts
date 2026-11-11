@@ -454,7 +454,9 @@ export class SiYuanAPI {
 				? gp.slice(SYNC_ROOT.length + 1)
 				: e.name;
 
-                        if (shouldSkipPath(relPath, SKIP_ROOT_DIRS)) continue;
+                        // recent-doc.json participates in sync (merge-based)
+                        if (relPath !== "storage/recent-doc.json" &&
+                        	shouldSkipPath(relPath, SKIP_ROOT_DIRS)) continue;
                         if (SKIP_PATH_FRAGMENTS.some((f) => sp.includes(f))) continue;
                         if (LOCKED_EXTENSIONS.some((ext) => e.name.toLowerCase().endsWith(ext)))
                                 continue;

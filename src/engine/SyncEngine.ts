@@ -10,6 +10,11 @@ import { EventEmitter } from "events";
 import { showMessage, Dialog, getFrontend } from "siyuan";
 import { t, setLocale } from "../shared-utils/i18n";
 import {
+	mergeRecentDocs,
+	parseRecentDoc,
+	serializeRecentDoc,
+} from "../shared-utils/recent-docs";
+import {
 	SYNC_ROOT,
 	MAX_FILE_BYTES,
 	SKIP_ROOT_DIRS,
@@ -52,6 +57,8 @@ import {
 	processNotebookManifests,
 } from "./manifests";
 import { SiYuanAPI } from "src/api/Siyuan-api";
+
+const RECENT_REL = "storage/recent-doc.json";
 
 export class SyncEngine extends EventEmitter {
         // Paths of .sy files written during the current pull (for upsertIndexes)
@@ -107,7 +114,27 @@ export class SyncEngine extends EventEmitter {
         }
 
         // push action pipeline
+        /** [rt43] True when at least one notebook resolves to cloud mode. */
+        private hasAnyCloudNotebook(): boolean {
+            const overrides = this.config.nbSyncModes || {};
+            const global = this.config.syncMode || "cloud";
+            if (Object.keys(overrides).length === 0) return global === "cloud";
+            return Object.values(overrides).some((v) => v === "cloud")
+                || global === "cloud";
+        }
+
+        /** [rt43] Resolve the effective sync mode for a notebook id. */
+        private effectiveModeForBox(box: string): "off" | "lan" | "cloud" {
+            const override = this.config.nbSyncModes?.[box];
+            if (override) return override;
+            return this.config.syncMode || "cloud";
+        }
+
         public async pushToGitHub(): Promise<SyncResult> {
+                // [rt42] syncMode gate: off/lan do not touch GitHub
+                if (!this.hasAnyCloudNotebook()) {
+                	return { status: "success" as const, message: "sync skipped (syncMode off/lan)", skipped: true };
+                }
                 if (this.activeTask) throw new SyncError(409, t("action.push"));
                 this.activeTask = "push";
                 this.activeTaskSince = Date.now();
@@ -171,6 +198,10 @@ export class SyncEngine extends EventEmitter {
 
 	// pull action pipeline
 	public async pullFromGitHub(): Promise<SyncResult> {
+		// [rt42] syncMode gate (same as push)
+		if (!this.hasAnyCloudNotebook()) {
+			return { status: "success" as const, message: "sync skipped (syncMode off/lan)", skipped: true };
+		}
 		if (this.activeTask) throw new SyncError(409, t("action.pull"));
 		this.activeTask = "pull";
             this.activeTaskSince = Date.now();
@@ -345,6 +376,30 @@ export class SyncEngine extends EventEmitter {
 				const remoteContent = await this.api.downloadBlob(pullSha);
 				if (remoteContent) {
 					const decrypted = await this.crypto.decrypt(remoteContent);
+					// recent-doc.json: merge by doc id, never whole-file overwrite
+					if (pull.githubPath.endsWith(RECENT_REL)) {
+						const asText = (v: string | ArrayBuffer) =>
+							typeof v === "string"
+								? v
+								: new TextDecoder().decode(v);
+						const localRaw = asText(
+							(await this.siyuan.getFile(pull.siYuanPath)) as
+								string | ArrayBuffer,
+						);
+						const decText = asText(decrypted);
+						const merged = mergeRecentDocs(
+							parseRecentDoc(localRaw),
+							parseRecentDoc(decText),
+						);
+						const writeSuccess = await this.siyuan.putFile(
+							pull.siYuanPath,
+							new TextEncoder().encode(serializeRecentDoc(merged)).buffer as ArrayBuffer,
+						);
+						if (writeSuccess) {
+							plan.toReuse.push({ githubPath: pull.githubPath, sha: pullSha });
+						}
+						continue;
+					}
 					const writeSuccess = await this.siyuan.putFile(
 						pull.siYuanPath,
 						decrypted,
@@ -692,7 +747,8 @@ for (let i = 0; i < plan.toUpload.length; i++) {
 
 			if (i.path.startsWith(`${SYNC_ROOT}/`)) {
 				const relPath = i.path.slice(SYNC_ROOT.length + 1);
-				if (shouldSkipPath(relPath, SKIP_ROOT_DIRS)) return false;
+				if (relPath !== "storage/recent-doc.json" &&
+					shouldSkipPath(relPath, SKIP_ROOT_DIRS)) return false;
 			}
 
 			return i.path.startsWith(SYNC_ROOT);
@@ -825,6 +881,28 @@ const content = await this.api.downloadBlob(item.sha);
                                                         // and showed a phantom diff in the bar.
                                                         if (content) {
 						try {
+                                                        // recent-doc.json: merge by doc id (never overwrite local recency)
+                                                        if (originalPath.endsWith("storage/recent-doc.json")) {
+                                                        	const asText = (v: string | ArrayBuffer) =>
+                                                        		typeof v === "string" ? v : new TextDecoder().decode(v);
+                                                        	const localRaw = asText(
+                                                        		(await this.siyuan.getFile(siPath)) as string | ArrayBuffer,
+                                                        	);
+                                                        	const decText = asText((await this.crypto.decrypt(content)) as string | ArrayBuffer);
+                                                        	const merged = mergeRecentDocs(
+                                                        		parseRecentDoc(localRaw),
+                                                        		parseRecentDoc(decText),
+                                                        	);
+                                                        	const wOk = await this.siyuan.putFile(siPath,
+                                                        		new TextEncoder().encode(serializeRecentDoc(merged)).buffer as ArrayBuffer,
+                                                        	);
+                                                        	if (wOk) {
+                                                        		const ptSha = await calculateGitSha(new TextEncoder().encode(serializeRecentDoc(merged)).buffer as ArrayBuffer);
+                                                        		this.ledger.updateFile(originalPath, ptSha, item.sha);
+                                                        		stateUpdated = true;
+                                                        	}
+                                                        	return;
+                                                        }
                                                         const decrypted = await this.crypto.decrypt(content);
                                                         const writeSuccess = await this.siyuan.putFile(siPath, decrypted);
 
