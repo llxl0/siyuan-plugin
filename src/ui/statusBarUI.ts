@@ -3,6 +3,16 @@ import { GitPluginConfig, STORAGE_KEY } from "../shared-utils/types";
 
 export class StatusBarUI {
     private statusBarEl: HTMLElement | null = null;
+    /** [rt50] id/name pairs fed by the engine for mode breakdown. */
+    public notebookList: { id: string; name: string }[] = [];
+    /** [rt53] per-notebook detail rows for the popover. */
+    public modeDetail: string = "";
+    /** [rt51] notebook id → doc count (fed by index.ts). */
+    public nbDocCounts: Record<string, number> = {};
+    /** [rt52] notebook id → peer doc count (null = peer unreachable). */
+    public nbPeerCounts: Record<string, number | null> = {};
+	/** [rt54] idle | syncing | error — drives the main icon. */
+	public syncState: "idle" | "syncing" | "error" = "idle";
 
     constructor(
         private plugin: Plugin,
@@ -44,41 +54,72 @@ export class StatusBarUI {
         document.body.appendChild(this.statusBarEl);
     }
 
-    private update() {
-        if (!this.statusBarEl) return;
-        if (this.busy) {
-            this.statusBarEl.innerHTML =
-                `<span style="display:inline-flex;align-items:center;gap:4px;">${this.busyIcon} ${this.busyText}</span>`;
-            return;
-        }
-        // Two pieces of info side by side:
-        //   ① local/remote file counts — "where is sync at"
-        //   ② last sync time           — "how long since it ran"
-        let icon = "🔄";
-        let hint = "本地 / 远端 文件数（一致即已同步）";
-        const local = this.localCount;
-        const remote = this.remoteCount;
-        if (local !== null && remote !== null && local !== remote) {
-            icon = local < remote ? "⬇️" : "⬆️";
-            hint = local < remote ? `待拉取 ${remote - local} 个文件` : `待推送 ${local - remote} 个文件`;
-        }
-        const l = local === null ? "--" : String(local);
-        const r = remote === null ? "--" : String(remote);
-        let timePart = "";
+    /** [rt53] Popover with per-notebook sync details. */
+    private showDetail(): void {
+        const local = this.localCount ?? 0;
+        const remote = this.remoteCount ?? 0;
+        const stateText = this.syncState === "syncing"
+            ? "🔄 正在同步…"
+            : this.syncState === "error" ? "⛔ 上次同步失败"
+            : "✅ 已同步";
+        let timeLine = "";
         if (this.config.lastSync) {
             const d = new Date(this.config.lastSync);
-            const hh = String(d.getHours()).padStart(2, "0");
-            const mm = String(d.getMinutes()).padStart(2, "0");
-            const ss = String(d.getSeconds()).padStart(2, "0");
-            const dd = String(d.getDate()).padStart(2, "0");
-            const mo = String(d.getMonth() + 1).padStart(2, "0");
-            timePart = ` · ${dd}/${mo} ${hh}:${mm}:${ss}<span id="gs-sync-ago"></span>`;
-        } else {
-            timePart = ` · 未同步过`;
+            const pad = (n: number) => String(n).padStart(2, "0");
+            const ts = `${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            timeLine = `<div style="margin-top:6px;font-size:12px;opacity:.75">上次云端同步: ${ts}（${this.fmtElapsed(Date.now() - this.config.lastSync)}）</div>`;
+        }
+        const rows = this.modeDetail || "（无数据）";
+        const el = document.createElement("div");
+        el.style.cssText = "position:fixed;bottom:34px;right:12px;z-index:99;"
+            + "background:var(--b3-theme-background);border:1px solid var(--b3-border-color);"
+            + "border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.25);max-width:380px;"
+            + "max-height:50vh;overflow:auto;padding:12px;font-size:13px;line-height:1.9;user-select:text;";
+        el.innerHTML = `<div style="font-weight:600">云端: ${local}/${remote} · ${stateText}</div>${timeLine}`
+            + `<div style="margin-top:8px;font-weight:600">笔记本同步模式</div>${rows}`
+            + `<div style="margin-top:8px;font-size:11px;opacity:.6">点击其他区域关闭</div>`;
+        const close = () => el.remove();
+        el.addEventListener("click", close);
+        document.body.appendChild(el);
+        setTimeout(() => {
+            const closer = (ev: MouseEvent) => {
+                if (!el.contains(ev.target as Node)) {
+                    close();
+                    document.removeEventListener("click", closer);
+                }
+            };
+            document.addEventListener("click", closer);
+        }, 50);
+    }
+
+    private update() {
+        if (!this.statusBarEl) return;
+        // [rt54] main bar = single state icon (details on click)
+        let icon = "✅";
+        let color = "var(--b3-theme-primary)";
+        let hint = "已同步（点击查看详情）";
+        if (this.syncState === "syncing") {
+            icon = "🔄";
+            color = "var(--b3-theme-warning)";
+            hint = "正在同步…（点击查看详情）";
+        } else if (this.syncState === "error") {
+            icon = "⛔";
+            color = "var(--b3-theme-error)";
+            hint = "上次同步失败（点击查看详情）";
         }
         this.statusBarEl.innerHTML =
-            `<span style="display:inline-flex;align-items:center;gap:4px;" title="${hint}">${icon} ${l}/${r}${timePart}</span>`;
-        this.refreshAgo();
+            `<span id="rt-sync-status" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;color:${color};font-size:14px;" title="${hint}">${icon}</span>`;
+        this.statusBarEl
+            .querySelector("#rt-sync-status")
+            ?.addEventListener("click", () => this.showDetail());
+        // syncing 图标转圈动画
+        const iconEl = this.statusBarEl.querySelector("#rt-sync-status");
+        if (iconEl && this.syncState === "syncing") {
+            (iconEl as HTMLElement).style.animation =
+                "rt-spin 1s linear infinite";
+        } else if (iconEl) {
+            (iconEl as HTMLElement).style.animation = "";
+        }
     }
 
     /** Format an elapsed duration compactly in Chinese. */
@@ -153,7 +194,13 @@ export class StatusBarUI {
     }
 
     /** Update the file counts shown as "local / remote". */
-    public setCounts(local: number | null, remote: number | null): void {
+    /** [rt51] Force re-render (doc counts / modes updated). */
+    public refresh(): void {
+        this.update();
+    }
+
+    public setCounts(local: number | null, remote: number | null,
+                  state?: "idle" | "syncing" | "error"): void {
         if (local !== null) this.localCount = local;
         if (remote !== null) this.remoteCount = remote;
         this.update();

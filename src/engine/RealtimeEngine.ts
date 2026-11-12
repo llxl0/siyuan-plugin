@@ -99,6 +99,7 @@ export class RealtimeEngine {
                 setBusy(b: boolean): void;
                 markSynced(): void;
                 setCounts(local: number | null, remote: number | null): void;
+				syncState: "idle" | "syncing" | "error";
                 setProgress(pct: number, text: string): void;
         },
         ) {
@@ -241,6 +242,7 @@ export class RealtimeEngine {
                 } else if (boxes.every((b) => (overrides[b] || this.config.syncMode || "cloud") !== "cloud")) {
                         return;
                 }
+                if (this.statusBar) this.statusBar.syncState = "syncing";
                 // Don't drop the event when another op is running — remember it and
                 // replay once the current op finishes (a dropped event = lost sync).
                 if (this.busy) {
@@ -253,7 +255,8 @@ export class RealtimeEngine {
                 this.busySince = Date.now();
                 this.statusBar?.setBusy(true);
                 try {
-                        const r = await this.engine.pushToGitHub();
+					const r = await this.engine.pushToGitHub();
+					if (this.statusBar) this.statusBar.syncState = "idle";
                         if (r.status === "success") {
                                 this.lastKnownRemoteSha = null;
                                 this.statusBar?.markSynced();
@@ -261,6 +264,7 @@ export class RealtimeEngine {
                         }
                 } catch (e) {
                         const raw = e instanceof Error ? `${e.message}` : String(e);
+					if (this.statusBar) this.statusBar.syncState = "error";
                         this.trace(`push error: ${raw}`);
                 } finally {
                         this.busy = false;
