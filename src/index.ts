@@ -32,7 +32,7 @@ import {
 import { friendlyError } from "./shared-utils/utils";
 
 /** [rt46] Version stamped by the release script (keep in sync with plugin.json). */
-const SELF_VERSION = "4.0.4-rt60";
+const SELF_VERSION = "4.0.4-rt62";
 
 export default class GitHubSyncPlugin extends Plugin {
         private engine!: SyncEngine;
@@ -98,10 +98,35 @@ export default class GitHubSyncPlugin extends Plugin {
 		// [rt59] state icon auto-refresh (2s, cheap)
 		setInterval(() => this.refreshStateIcon(), 2000);
         // [rt50] feed notebook list to status bar for mode breakdown
-        fetch("/api/notebook/lsNotebooks", { method: "POST", body: "{}" })
-            .then((r) => r.json())
-            .then((j) => { this.statusBar.notebookList = j?.data?.notebooks || []; })
-            .catch(() => {});
+        fetch("/api/query/sql", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ stmt: `SELECT box, COUNT(*) AS c FROM blocks WHERE type="d" GROUP BY box` })
+                })
+                .then((r) => r.json())
+                .then((j) => {
+                    const docMap: Record<string, number> = {};
+                    for (const row of j?.data || []) docMap[row.box] = row.c;
+                    return fetch("/api/notebook/lsNotebooks", { method: "POST", body: "{}" })
+                        .then((r2) => r2.json())
+                        .then((j2) => ({ docMap, nbs: j2?.data?.notebooks || [] }));
+                })
+                .then(({ docMap, nbs }) => {
+                    const overrides = (this.config.nbSyncModes || {}) as Record<string, string>;
+                    const global = (this.config.syncMode || "cloud") as string;
+                    const icons: Record<string, string> = { cloud: "☁", lan: "🏠", off: "⛔" };
+                    let html = "";
+                    for (const nb of nbs) {
+                        const mode = overrides[nb.id] || global;
+                        const c = docMap[nb.id] ?? 0;
+                        html += `<div>${icons[mode] || ""} ${nb.name} — ${mode} · ${c} 篇</div>`;
+                    }
+                    const sec = el.querySelector("#rt-nb-rows");
+                    if (sec) sec.innerHTML = html || "（无笔记本）";
+                })
+                .catch(() => {
+                    const sec = el.querySelector("#rt-nb-rows");
+                    if (sec) sec.innerHTML = "加载失败";
+                });
 
 		// [rt51] per-notebook doc counts (status bar lan/off display)
 		const refreshNbDocCounts = () => {
