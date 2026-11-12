@@ -93,6 +93,8 @@ export class StatusBarUI {
     }
 
     private update() {
+        // [rt60] bottom bar removed — data-only mode; skip DOM rendering
+        return;
         if (!this.statusBarEl) return;
         // [rt54] main bar = single state icon (details on click)
         let icon = "✅";
