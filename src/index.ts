@@ -334,8 +334,7 @@ export default class GitHubSyncPlugin extends Plugin {
                 }
                 const sec = el.querySelector("#rt-nb-rows");
                 if (sec) sec.innerHTML = html || "（无笔记本）";
-            })
-            .then(({ docMap, nbs }) => {
+            }).then(({ docMap, nbs }) => {
                 const peers = (this.config.lanPeers || []) as string[];
                 const sec0 = el.querySelector("#rt-nb-rows");
                 const psec0 = document.createElement("div");
