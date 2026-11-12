@@ -366,9 +366,6 @@ export default class GitHubSyncPlugin extends Plugin {
                 .catch(() => {
                     psec0.innerHTML = `对端 ${ph} 不可达`;
                 });
-            .catch(() => {
-                const sec = el.querySelector("#rt-nb-rows");
-                if (sec) sec.innerHTML = "加载失败";
             });
             setTimeout(() => {
                 const closer = (ev: MouseEvent) => {
