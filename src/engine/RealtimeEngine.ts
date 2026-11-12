@@ -242,7 +242,7 @@ export class RealtimeEngine {
                 } else if (boxes.every((b) => (overrides[b] || this.config.syncMode || "cloud") !== "cloud")) {
                         return;
                 }
-                if (this.statusBar) this.statusBar.syncState = "syncing";
+                if (!(this.plugin as any)?.isManualSync && this.statusBar) this.statusBar.syncState = "syncing";
                 // Don't drop the event when another op is running — remember it and
                 // replay once the current op finishes (a dropped event = lost sync).
                 if (this.busy) {
@@ -256,7 +256,7 @@ export class RealtimeEngine {
                 this.statusBar?.setBusy(true);
                 try {
 					const r = await this.engine.pushToGitHub();
-					if (this.statusBar) this.statusBar.syncState = "idle";
+					if (!(this.plugin as any)?.isManualSync && this.statusBar) this.statusBar.syncState = "idle";
                         if (r.status === "success") {
                                 this.lastKnownRemoteSha = null;
                                 this.statusBar?.markSynced();

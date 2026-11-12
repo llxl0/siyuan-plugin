@@ -121,17 +121,6 @@ this.engine.removeAllListeners()
 
 		// populate action buttons
 		inputFields.actions = this.populateActionButtons(updateCurrentFieldsFromNewConfig);
-				// [rt46] self-update button
-				this.plugin.setting.addItem({
-					title: "插件自更新 (从 llxl0/siyuan-plugin rt-stable 拉取)",
-					createActionElement: () => {
-						const btn = document.createElement("button");
-						btn.className = "b3-button b3-button--outline";
-						btn.textContent = "检查更新";
-						btn.onclick = () => this.plugin.checkSelfUpdate();
-						return btn;
-					},
-				});
 
 		// Dynamic language change callback
 		inputFields.language.onchange = () => {
@@ -222,7 +211,7 @@ this.engine.removeAllListeners()
 		this.plugin.setting.addItem({
 				title: t("setting.github_user"),
 				createActionElement: () => inputFields.username,
-			});
+		});
 
 		// repo
 		this.plugin.setting.addItem({
@@ -271,6 +260,18 @@ this.engine.removeAllListeners()
 		this.plugin.setting.addItem({
 			title: t("setting.actions"),
 			createActionElement: () => inputFields.actions,
+		});
+
+		// [rt46] self-update button (last item; Setting object exists by now)
+		this.plugin.setting.addItem({
+			title: "插件自更新 (从 rt-stable 分支拉取)",
+			createActionElement: () => {
+				const btn = document.createElement("button");
+				btn.className = "b3-button b3-button--outline";
+				btn.textContent = "检查更新";
+				btn.onclick = () => this.plugin.checkSelfUpdate();
+				return btn;
+			},
 		});
 	}
 
