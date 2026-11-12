@@ -1,0 +1,42 @@
+{
+  "name": "siyuan-block-to-page",
+  "author": "llxl0",
+  "url": "https://github.com/llxl0/siyuan-block-to-page",
+  "version": "1.1.0",
+  "minAppVersion": "3.6.0",
+  "displayName": {
+    "default": "Block to Page",
+    "zh_CN": "块转页面"
+  },
+  "description": {
+    "default": "Notion-style 'Turn into page': convert any block into a child document and leave an in-place reference chip.",
+    "zh_CN": "Notion 式「转为页面」：把任意块一键转为子文档，并在原地留下引用芯片，父文档可见可跳转。"
+  },
+  "keywords": [
+    "block",
+    "document",
+    "page",
+    "reference",
+    "notion"
+  ],
+  "backends": [
+    "windows",
+    "linux",
+    "darwin",
+    "ios",
+    "android",
+    "docker"
+  ],
+  "frontends": [
+    "desktop",
+    "mobile",
+    "browser-desktop",
+    "browser-mobile"
+  ],
+  "readme": {
+    "default": "README.md",
+    "zh_CN": "README.md"
+  },
+  "funding": {},
+  "icon": "icon.png"
+}

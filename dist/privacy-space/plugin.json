@@ -1,0 +1,42 @@
+{
+  "name": "siyuan-privacy-space",
+  "author": "llxl0",
+  "url": "https://github.com/llxl0/siyuan-privacy-space",
+  "version": "2.8.1",
+  "minAppVersion": "3.6.0",
+  "displayName": {
+    "default": "Privacy Space",
+    "zh_CN": "隐私空间"
+  },
+  "description": {
+    "default": "Password-protected private notebooks: AES-256-GCM encryption at rest, hidden from humans and AI alike.",
+    "zh_CN": "密码保护的隐私空间：AES-256-GCM 加密落盘，对人和 AI 一视同仁地隐藏。"
+  },
+  "keywords": [
+    "privacy",
+    "encryption",
+    "password",
+    "lock",
+    "hide"
+  ],
+  "backends": [
+    "windows",
+    "linux",
+    "darwin",
+    "ios",
+    "android",
+    "docker"
+  ],
+  "frontends": [
+    "desktop",
+    "mobile",
+    "browser-desktop",
+    "browser-mobile"
+  ],
+  "readme": {
+    "default": "README.md",
+    "zh_CN": "README.md"
+  },
+  "funding": {},
+  "icon": "icon.png"
+}
