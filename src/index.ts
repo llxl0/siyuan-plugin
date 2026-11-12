@@ -32,7 +32,7 @@ import {
 import { friendlyError } from "./shared-utils/utils";
 
 /** [rt46] Version stamped by the release script (keep in sync with plugin.json). */
-const SELF_VERSION = "4.0.4-rt66";
+const SELF_VERSION = "4.0.4-rt67";
 
 export default class GitHubSyncPlugin extends Plugin {
         private engine!: SyncEngine;
