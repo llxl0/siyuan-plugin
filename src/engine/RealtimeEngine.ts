@@ -100,6 +100,7 @@ export class RealtimeEngine {
                 markSynced(): void;
                 setCounts(local: number | null, remote: number | null): void;
 				syncState: "idle" | "syncing" | "error";
+                                lastAction: "push" | "pull" | null;
                 setProgress(pct: number, text: string): void;
         },
         ) {

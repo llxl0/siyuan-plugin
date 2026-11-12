@@ -341,7 +341,7 @@ export default class GitHubSyncPlugin extends Plugin {
                 psec0.id = "rt-peer-rows";
                 psec0.style.cssText = "margin-top:8px";
                 if (sec0) sec0.parentElement.insertBefore(psec0, sec0.nextSibling);
-                if (peers.length === 0) { psec0.innerHTML = "未配置 LAN 对端"; return; }
+                if (peers.length === 0) { psec0.innerHTML = "未配置 LAN 对端"; return { docMap, nbs }; }
                 const [ph, pp] = peers[0].split(":");
                 const pbase = `http://${ph}:${pp || 6806}`;
                 return fetch(pbase + "/api/query/sql", {
