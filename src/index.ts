@@ -32,7 +32,7 @@ import {
 import { friendlyError } from "./shared-utils/utils";
 
 /** [rt46] Version stamped by the release script (keep in sync with plugin.json). */
-const SELF_VERSION = "4.0.4-rt67";
+const SELF_VERSION = "4.0.4-rt68";
 
 export default class GitHubSyncPlugin extends Plugin {
         private engine!: SyncEngine;
@@ -84,6 +84,7 @@ export default class GitHubSyncPlugin extends Plugin {
                 }, 1000);
 
                 this.addTopBar({
+                        id: "rt-sync-state",
                         icon: "iconRefresh",
                         title: "同步状态（点击查看详情）",
                         position: "right",
@@ -382,36 +383,27 @@ export default class GitHubSyncPlugin extends Plugin {
         refreshStateIcon(): void {
             const bar = this.statusBar as any;
             const state = bar?.syncState || "idle";
-            const btn = document.querySelector('#toolbar use[href="#iconRefresh"], #toolbar use[href="#iconClose"]');
+            const dir = bar?.lastAction || "push";
+            const icon = state === "syncing" ? "iconRefresh"
+                : dir === "pull" ? "iconGitHubDownload" : "iconGitHubUpload";
+            const btn = document.getElementById("rt-sync-state");
             if (!btn) return;
-            const use = btn;  // btn 现在就是 use 元素
-            const icon = state === "syncing" ? "iconRefresh" : state === "error" ? "iconClose" : "iconCheck";
-            if (use) {
-                const parent = use.parentNode;
-                let nu: Element;
-                if (state === "idle") {
-                    // [rt66] custom "=" (equals) SVG — avoids clashing with SiYuan's index icon
-                    nu = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                    nu.setAttribute("viewBox", "0 0 16 16");
-                    nu.setAttribute("width", "14");
-                    nu.setAttribute("height", "14");
-                    nu.innerHTML =
-                        '<rect x="3" y="4" width="10" height="2" rx="1" fill="currentColor"/>'
-                        + '<rect x="3" y="10" width="10" height="2" rx="1" fill="currentColor"/>';
-                } else {
-                    nu = document.createElementNS("http://www.w3.org/2000/svg", "use");
-                    nu.setAttribute("xlink:href", "#" + icon);
-                    nu.setAttribute("href", "#" + icon);
-                }
-                parent.replaceChild(nu, use);
-            }
-            const b = btn.closest(".toolbar__item") as HTMLElement;
-            b.style.color = state === "error" ? "var(--b3-theme-error)" : state === "syncing" ? "var(--b3-theme-warning)" : "";
+            const b = btn as HTMLElement;
+            b.style.color = state === "error" ? "var(--b3-theme-error)"
+                : state === "syncing" ? "var(--b3-theme-warning)" : "";
             b.style.animation = state === "syncing" ? "rt-spin 1s linear infinite" : "";
-            (b as HTMLElement).title = state === "syncing"
-                ? "正在同步…"
-                : state === "error" ? "上次同步失败" : "已同步（点击查看详情）";
+            b.title = state === "syncing" ? "正在同步…" : state === "error" ? "上次同步失败" : "已同步（点击查看详情）";
+            if (state === "idle") {
+                if (b.dataset.iconState !== "idle") {
+                    b.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14" style="fill:currentColor"><rect x="3" y="4" width="10" height="2" rx="1"/><rect x="3" y="10" width="10" height="2" rx="1"/></svg>`;
+                    b.dataset.iconState = "idle";
+                }
+            } else {
+                b.innerHTML = `<svg style="width:14px;height:14px"><use xlink:href="#" + icon + "></use></svg>`;
+                b.dataset.iconState = state;
+            }
         }
+
 
         async onunload() {
                 this.realtime?.stop();
