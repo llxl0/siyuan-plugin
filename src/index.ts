@@ -73,6 +73,14 @@ export default class GitHubSyncPlugin extends Plugin {
                 this.statusBar = new StatusBarUI(this, this.config);
                 setTimeout(() => {
                         this.statusBar.attach();
+				// [rt68] stamp id on our state button (addTopBar lacks id param)
+				const locateStateBtn = () => {
+					const found = [...document.querySelectorAll("#toolbar .toolbar__item")]
+						.find((e) => (e.getAttribute("title") || "").indexOf("同步状态") >= 0);
+					if (found) found.id = "rt-sync-state";
+					return !!found;
+				};
+				const locateTimer = setInterval(() => { if (locateStateBtn()) clearInterval(locateTimer); }, 500);
                         // [rt55] spin keyframes (once)
                         if (!document.getElementById("rt-spin-style")) {
                                 const st = document.createElement("style");
@@ -386,7 +394,13 @@ export default class GitHubSyncPlugin extends Plugin {
             const dir = bar?.lastAction || "push";
             const icon = state === "syncing" ? "iconRefresh"
                 : dir === "pull" ? "iconGitHubDownload" : "iconGitHubUpload";
-            const btn = document.getElementById("rt-sync-state");
+            let btn = document.getElementById("rt-sync-state") as HTMLElement;
+            if (!btn) {
+                btn = [...document.querySelectorAll("#toolbar .toolbar__item")]
+                    .find((e) => (e.getAttribute("title") || "").indexOf("同步状态") >= 0)
+                    as HTMLElement;
+                if (btn) btn.id = "rt-sync-state";
+            }
             if (!btn) return;
             const b = btn as HTMLElement;
             b.style.color = state === "error" ? "var(--b3-theme-error)"
