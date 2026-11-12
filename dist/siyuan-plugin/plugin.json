@@ -1,0 +1,40 @@
+{
+  "name": "siyuan-github-sync-rt",
+  "author": "llxl0",
+  "url": "https://github.com/llxl0/siyuan-plugin",
+  "version": "4.0.4-rt48",
+  "minAppVersion": "3.6.4",
+  "backends": [
+    "windows",
+    "linux",
+    "darwin",
+    "ios",
+    "android",
+    "docker"
+  ],
+  "frontends": [
+    "desktop",
+    "mobile",
+    "browser-desktop",
+    "browser-mobile"
+  ],
+  "displayName": {
+    "default": "GitHub Sync RT",
+    "zh_CN": "GitHub 同步 RT"
+  },
+  "description": {
+    "default": "Realtime GitHub sync for SiYuan: transaction-driven push (2s debounce), merge-based pull, recent-docs cross-device sync. Fork of Cyprien63/siyuan-plugin, heavily rebuilt.",
+    "zh_CN": "思源笔记实时 GitHub 同步：事务驱动推送（2 秒防抖）、合并式拉取、最近文档跨端同步。基于 Cyprien63/siyuan-plugin 二次开发。"
+  },
+  "readme": {
+    "default": "README.md"
+  },
+  "funding": {},
+  "keywords": [
+    "sync",
+    "github",
+    "backup",
+    "git",
+    "version-control"
+  ]
+}
