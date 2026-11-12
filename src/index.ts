@@ -325,8 +325,11 @@ export default class GitHubSyncPlugin extends Plugin {
             const use = btn;  // btn 现在就是 use 元素
             const icon = state === "syncing" ? "iconRefresh" : state === "error" ? "iconClose" : "iconCheck";
             if (use) {
-                use.setAttribute("xlink:href", "#" + icon);
-                use.setAttribute("href", "#" + icon);
+                const parent = use.parentNode;
+                const nu = document.createElementNS("http://www.w3.org/2000/svg", "use");
+                nu.setAttribute("xlink:href", "#" + icon);
+                nu.setAttribute("href", "#" + icon);
+                parent.replaceChild(nu, use);
             }
             const b = btn.closest(".toolbar__item") as HTMLElement;
             b.style.color = state === "error" ? "var(--b3-theme-error)" : state === "syncing" ? "var(--b3-theme-warning)" : "";
