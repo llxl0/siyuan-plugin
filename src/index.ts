@@ -364,7 +364,7 @@ export default class GitHubSyncPlugin extends Plugin {
                 })
                 .catch(() => {
                     psec0.innerHTML = `对端 ${ph} 不可达`;
-                });
+                })
             });
             setTimeout(() => {
                 const closer = (ev: MouseEvent) => {
