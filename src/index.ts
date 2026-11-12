@@ -75,7 +75,7 @@ export default class GitHubSyncPlugin extends Plugin {
                         this.statusBar.attach();
 				// [rt68] stamp id on our state button (addTopBar lacks id param)
 				const locateStateBtn = () => {
-					const found = [...document.querySelectorAll("#toolbar .toolbar__item")]
+					const found = Array.from(document.querySelectorAll("#toolbar .toolbar__item"))
 						.find((e) => (e.getAttribute("title") || "").indexOf("同步状态") >= 0);
 					if (found) found.id = "rt-sync-state";
 					return !!found;
@@ -396,7 +396,7 @@ export default class GitHubSyncPlugin extends Plugin {
                 : dir === "pull" ? "iconGitHubDownload" : "iconGitHubUpload";
             let btn = document.getElementById("rt-sync-state") as HTMLElement;
             if (!btn) {
-                btn = [...document.querySelectorAll("#toolbar .toolbar__item")]
+                btn = Array.from(document.querySelectorAll("#toolbar .toolbar__item"))
                     .find((e) => (e.getAttribute("title") || "").indexOf("同步状态") >= 0) as HTMLElement;
                 if (btn) btn.id = "rt-sync-state";
             }
