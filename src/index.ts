@@ -267,7 +267,7 @@ export default class GitHubSyncPlugin extends Plugin {
 	}
 
         /** [rt55] Sync detail popover. */
-        async showSyncDetail(): void {
+        async showSyncDetail(): Promise<void> {
             const bar = this.statusBar as any;
             const local = bar?.localCount ?? 0;
             const remote = bar?.remoteCount ?? 0;
