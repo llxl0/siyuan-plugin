@@ -32,7 +32,7 @@ import {
 import { friendlyError } from "./shared-utils/utils";
 
 /** [rt46] Version stamped by the release script (keep in sync with plugin.json). */
-const SELF_VERSION = "4.0.4-rt64";
+const SELF_VERSION = "4.0.4-rt65";
 
 export default class GitHubSyncPlugin extends Plugin {
         private engine!: SyncEngine;
@@ -267,7 +267,7 @@ export default class GitHubSyncPlugin extends Plugin {
 	}
 
         /** [rt55] Sync detail popover. */
-        showSyncDetail(): void {
+        async showSyncDetail(): void {
             const bar = this.statusBar as any;
             const local = bar?.localCount ?? 0;
             const remote = bar?.remoteCount ?? 0;
@@ -309,23 +309,21 @@ export default class GitHubSyncPlugin extends Plugin {
             const close = () => el.remove();
             el.addEventListener("click", close);
             document.body.appendChild(el);
-            // [rt60] fetch notebooks live
-            fetch("/api/query/sql", {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ stmt: `SELECT box, COUNT(*) AS c FROM blocks WHERE type="d" GROUP BY box` })
-            })
-            .then((r) => r.json())
-            .then((j) => {
+            // [rt60/64] fetch notebooks + doc counts + peer data (await style)
+            try {
+                const sqlRes = await fetch("/api/query/sql", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ stmt: `SELECT box, COUNT(*) AS c FROM blocks WHERE type="d" GROUP BY box` }),
+                });
+                const sqlJson = await sqlRes.json();
                 const docMap: Record<string, number> = {};
-                for (const row of j?.data || []) docMap[row.box] = row.c;
-                return fetch("/api/notebook/lsNotebooks", { method: "POST", body: "{}" })
-                    .then((r2) => r2.json())
-                    .then((j2) => ({ docMap, nbs: j2?.data?.notebooks || [] }));
-            })
-            .then(({ docMap, nbs }) => {
+                for (const row of sqlJson?.data || []) docMap[row.box] = row.c;
+                const nbRes = await fetch("/api/notebook/lsNotebooks", { method: "POST", body: "{}" });
+                const nbJson = await nbRes.json();
+                const nbs = (nbJson?.data?.notebooks || []) as { id: string; name: string }[];
                 const overrides = (this.config.nbSyncModes || {}) as Record<string, string>;
                 const global = (this.config.syncMode || "cloud") as string;
-                const icons: Record<string, string> = { cloud: "☁", lan: "🏠", off: "⛔" };
+                const icons: Record<string, string> = { cloud: "\u2601", lan: "\ud83c\udfe0", off: "\u26d4" };
                 let html = "";
                 for (const nb of nbs) {
                     const mode = overrides[nb.id] || global;
@@ -334,38 +332,44 @@ export default class GitHubSyncPlugin extends Plugin {
                 }
                 const sec = el.querySelector("#rt-nb-rows");
                 if (sec) sec.innerHTML = html || "（无笔记本）";
-            }).then(({ docMap, nbs }) => {
+                // peer section
                 const peers = (this.config.lanPeers || []) as string[];
-                const sec0 = el.querySelector("#rt-nb-rows");
-                const psec0 = document.createElement("div");
-                psec0.id = "rt-peer-rows";
-                psec0.style.cssText = "margin-top:8px";
-                if (sec0) sec0.parentElement.insertBefore(psec0, sec0.nextSibling);
-                if (peers.length === 0) { psec0.innerHTML = "未配置 LAN 对端"; return { docMap, nbs }; }
-                const [ph, pp] = peers[0].split(":");
-                const pbase = `http://${ph}:${pp || 6806}`;
-                return fetch(pbase + "/api/query/sql", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", Authorization: "Token " + (this.config.token || "") },
-                    body: JSON.stringify({ stmt: `SELECT box, COUNT(*) AS c FROM blocks WHERE type="d" GROUP BY box` }),
-                })
-                .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-                .then((pj) => {
-                    const pmap: Record<string, number> = {};
-                    for (const row of pj?.data || []) pmap[row.box] = row.c;
-                    let phtml = `<div style="font-size:12px;opacity:.7">${ph}</div>`;
-                    for (const nb of nbs) {
-                        const c = docMap[nb.id] ?? 0;
-                        const pc = pmap[nb.id] ?? 0;
-                        const mark = c === pc ? "✅" : "⚠️";
-                        phtml += `<div>${mark} ${nb.name}: 本端 ${c} / 对端 ${pc}</div>`;
+                let psec = el.querySelector("#rt-peer-rows") as HTMLElement | null;
+                if (!psec) {
+                    psec = document.createElement("div");
+                    psec.id = "rt-peer-rows";
+                    psec.style.cssText = "margin-top:8px";
+                    if (sec && sec.parentElement) sec.parentElement.insertBefore(psec, sec.nextSibling);
+                }
+                if (peers.length === 0) { psec.innerHTML = "未配置 LAN 对端"; }
+                else {
+                    const [ph, pp] = peers[0].split(":");
+                    const pbase = `http://${ph}:${pp || 6806}`;
+                    try {
+                        const pr = await fetch(pbase + "/api/query/sql", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json", Authorization: "Token " + (this.config.token || "") },
+                            body: JSON.stringify({ stmt: `SELECT box, COUNT(*) AS c FROM blocks WHERE type="d" GROUP BY box` }),
+                        });
+                        if (!pr.ok) throw new Error(String(pr.status));
+                        const pj = await pr.json();
+                        const pmap: Record<string, number> = {};
+                        for (const row of pj?.data || []) pmap[row.box] = row.c;
+                        let phtml = `<div style="font-size:12px;opacity:.7">${ph}</div>`;
+                        for (const nb of nbs) {
+                            const c = docMap[nb.id] ?? 0;
+                            const pc = pmap[nb.id] ?? 0;
+                            const mark = c === pc ? "\u2705" : "\u26a0\ufe0f";
+                            phtml += `<div>${mark} ${nb.name}: 本端 ${c} / 对端 ${pc}</div>`;
+                        }
+                        psec.innerHTML = phtml;
+                    } catch {
+                        psec.innerHTML = `对端 ${ph} 不可达`;
                     }
-                    psec0.innerHTML = phtml;
-                })
-                .catch(() => {
-                    psec0.innerHTML = `对端 ${ph} 不可达`;
-                })
-            });
+                }
+            } catch (e) {
+                console.warn("[RT] detail fetch failed", e);
+            }
             setTimeout(() => {
                 const closer = (ev: MouseEvent) => {
                     if (!el.contains(ev.target as Node)) { close(); document.removeEventListener("click", closer); }
