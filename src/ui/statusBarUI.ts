@@ -11,6 +11,10 @@ export class StatusBarUI {
     public nbDocCounts: Record<string, number> = {};
     /** [rt52] notebook id → peer doc count (null = peer unreachable). */
     public nbPeerCounts: Record<string, number | null> = {};
+	/** [rt64] last sync direction: "push" | "pull" (drives arrow icon). */
+	public lastAction: "push" | "pull" | null = null;
+	/** [rt64] per-peer doc counts for the detail panel. */
+	public peerDetail: { name: string; host: string; docs: Record<string, number> | null; online: boolean }[] = [];
 	/** [rt54] idle | syncing | error — drives the main icon. */
 	public syncState: "idle" | "syncing" | "error" = "idle";
 

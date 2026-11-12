@@ -242,7 +242,7 @@ export class RealtimeEngine {
                 } else if (boxes.every((b) => (overrides[b] || this.config.syncMode || "cloud") !== "cloud")) {
                         return;
                 }
-                if (!(this.plugin as any)?.isManualSync && this.statusBar) this.statusBar.syncState = "syncing";
+                if (!(this.plugin as any)?.isManualSync && this.statusBar) { this.statusBar.syncState = "syncing"; this.statusBar.lastAction = "push"; }
                 // Don't drop the event when another op is running — remember it and
                 // replay once the current op finishes (a dropped event = lost sync).
                 if (this.busy) {

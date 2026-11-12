@@ -32,7 +32,7 @@ import {
 import { friendlyError } from "./shared-utils/utils";
 
 /** [rt46] Version stamped by the release script (keep in sync with plugin.json). */
-const SELF_VERSION = "4.0.4-rt63";
+const SELF_VERSION = "4.0.4-rt64";
 
 export default class GitHubSyncPlugin extends Plugin {
         private engine!: SyncEngine;
@@ -162,7 +162,8 @@ export default class GitHubSyncPlugin extends Plugin {
                         position: "right",
                         callback: async () => {
                                 this.isManualSync = true;
-                                try {
+                                if (this.statusBar) { this.statusBar.syncState = "syncing"; this.statusBar.lastAction = "pull"; }
+									try {
                                         await this.engine.pullFromGitHub();
                                         await this.statusBar.saveTimestamp();
                                 } catch (err) {
@@ -334,6 +335,37 @@ export default class GitHubSyncPlugin extends Plugin {
                 const sec = el.querySelector("#rt-nb-rows");
                 if (sec) sec.innerHTML = html || "（无笔记本）";
             })
+            .then(({ docMap, nbs }) => {
+                const peers = (this.config.lanPeers || []) as string[];
+                const sec0 = el.querySelector("#rt-nb-rows");
+                const psec0 = document.createElement("div");
+                psec0.id = "rt-peer-rows";
+                psec0.style.cssText = "margin-top:8px";
+                if (sec0) sec0.parentElement.insertBefore(psec0, sec0.nextSibling);
+                if (peers.length === 0) { psec0.innerHTML = "未配置 LAN 对端"; return; }
+                const [ph, pp] = peers[0].split(":");
+                const pbase = `http://${ph}:${pp || 6806}`;
+                return fetch(pbase + "/api/query/sql", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: "Token " + (this.config.token || "") },
+                    body: JSON.stringify({ stmt: `SELECT box, COUNT(*) AS c FROM blocks WHERE type="d" GROUP BY box` }),
+                })
+                .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+                .then((pj) => {
+                    const pmap: Record<string, number> = {};
+                    for (const row of pj?.data || []) pmap[row.box] = row.c;
+                    let phtml = `<div style="font-size:12px;opacity:.7">${ph}</div>`;
+                    for (const nb of nbs) {
+                        const c = docMap[nb.id] ?? 0;
+                        const pc = pmap[nb.id] ?? 0;
+                        const mark = c === pc ? "✅" : "⚠️";
+                        phtml += `<div>${mark} ${nb.name}: 本端 ${c} / 对端 ${pc}</div>`;
+                    }
+                    psec0.innerHTML = phtml;
+                })
+                .catch(() => {
+                    psec0.innerHTML = `对端 ${ph} 不可达`;
+                });
             .catch(() => {
                 const sec = el.querySelector("#rt-nb-rows");
                 if (sec) sec.innerHTML = "加载失败";
