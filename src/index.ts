@@ -32,7 +32,7 @@ import {
 import { friendlyError } from "./shared-utils/utils";
 
 /** [rt46] Version stamped by the release script (keep in sync with plugin.json). */
-const SELF_VERSION = "4.0.4-rt69";
+const SELF_VERSION = "4.0.4-rt70";
 
 export default class GitHubSyncPlugin extends Plugin {
         private engine!: SyncEngine;
@@ -102,6 +102,30 @@ export default class GitHubSyncPlugin extends Plugin {
                                 // the icon shows the state (spin/idle/error)
                         },
                 });
+
+
+                                // [rt70] restore independent push button
+                                this.addTopBar({
+                                        icon: "iconGitHubUpload",
+                                        title: t("top.push_title"),
+                                        position: "right",
+                                        callback: async () => {
+                                                this.isManualSync = true;
+                                                if (this.statusBar) { this.statusBar.syncState = "syncing"; this.statusBar.lastAction = "push"; }
+                                                try {
+                                                        await this.engine.pushToGitHub();
+                                                        if (this.statusBar) this.statusBar.syncState = "idle";
+                                                        await this.statusBar.saveTimestamp();
+                                                } catch (err) {
+                                                        if (this.statusBar) this.statusBar.syncState = "error";
+                                                        const msg =
+                                                                err instanceof SyncError ? err.message : friendlyError(err);
+                                                        showMessage(msg, 6000, "error");
+                                                } finally {
+                                                        this.isManualSync = false;
+                                                }
+                                        },
+                                });
 		// [rt43] sync-mode badges on the doc tree (2s light calibration)
 		setInterval(() => this.markSyncModeBadges(), 2000);
 		// [rt59] state icon auto-refresh (2s, cheap)
