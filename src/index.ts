@@ -102,6 +102,22 @@ export default class GitHubSyncPlugin extends Plugin {
             .then((r) => r.json())
             .then((j) => { this.statusBar.notebookList = j?.data?.notebooks || []; })
             .catch(() => {});
+
+		// [rt51] per-notebook doc counts (status bar lan/off display)
+		const refreshNbDocCounts = () => {
+			fetch("/api/query/sql", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ stmt: `SELECT box, COUNT(*) AS c FROM blocks WHERE type="d" GROUP BY box` }),
+			})
+			.then((r) => r.json())
+			.then((j) => {
+				const map: Record<string, number> = {};
+				for (const row of j?.data || []) map[row.box] = row.c;
+				this.statusBar.nbDocCounts = map;
+				this.statusBar.refresh();
+			})
+			.catch(() => {});
 		};
 		refreshNbDocCounts();
 		setInterval(refreshNbDocCounts, 60000);
