@@ -398,7 +398,7 @@ export default class GitHubSyncPlugin extends Plugin {
             if (!btn) {
                 btn = [...document.querySelectorAll("#toolbar .toolbar__item")]
                     .find((e) => (e.getAttribute("title") || "").indexOf("同步状态") >= 0)
-                    as HTMLElement;
+                as HTMLElement;
                 if (btn) btn.id = "rt-sync-state";
             }
             if (!btn) return;
