@@ -32,7 +32,7 @@ import {
 import { friendlyError } from "./shared-utils/utils";
 
 /** [rt46] Version stamped by the release script (keep in sync with plugin.json). */
-const SELF_VERSION = "4.0.4-rt68";
+const SELF_VERSION = "4.0.4-rt69";
 
 export default class GitHubSyncPlugin extends Plugin {
         private engine!: SyncEngine;
@@ -77,7 +77,7 @@ export default class GitHubSyncPlugin extends Plugin {
 				const locateStateBtn = () => {
 					const found = Array.from(document.querySelectorAll("#toolbar .toolbar__item"))
 						.find((e) => (e.getAttribute("title") || "").indexOf("同步状态") >= 0);
-					if (found) found.id = "rt-sync-state";
+					if (found) found.id = "plugin_siyuan-github-sync-rt:rt-sync-state";
 					return !!found;
 				};
 				const locateTimer = setInterval(() => { if (locateStateBtn()) clearInterval(locateTimer); }, 500);
@@ -394,11 +394,11 @@ export default class GitHubSyncPlugin extends Plugin {
             const dir = bar?.lastAction || "push";
             const icon = state === "syncing" ? "iconRefresh"
                 : dir === "pull" ? "iconGitHubDownload" : "iconGitHubUpload";
-            let btn = document.getElementById("rt-sync-state") as HTMLElement;
+            let btn = document.getElementById("plugin_siyuan-github-sync-rt:rt-sync-state") as HTMLElement;
             if (!btn) {
                 btn = Array.from(document.querySelectorAll("#toolbar .toolbar__item"))
                     .find((e) => (e.getAttribute("title") || "").indexOf("同步状态") >= 0) as HTMLElement;
-                if (btn) btn.id = "rt-sync-state";
+                if (btn) btn.id = "plugin_siyuan-github-sync-rt:rt-sync-state";
             }
             if (!btn) return;
             const b = btn as HTMLElement;
