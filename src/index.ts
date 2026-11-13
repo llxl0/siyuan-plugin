@@ -14,6 +14,7 @@ import { SyncEngine } from "./engine/SyncEngine";
 import { SyncStateLedger } from "./engine/SyncStateLedger";
 import { CryptoModule } from "./engine/CryptoModule";
 import { LanSync } from "./engine/LanSync";
+import { scanLanPeers } from "./engine/discovery";
 import { RealtimeEngine } from "./engine/RealtimeEngine";
 import { MdMirror } from "./engine/MdMirror";
 
@@ -251,6 +252,45 @@ export default class GitHubSyncPlugin extends Plugin {
                         this.engine.setLanSync(lan);
                 }
 
+                // [rt77] periodic LAN peer auto-discovery (network scan)
+                const DEFAULT_BASES = ["192.168.1", "192.168.0", "192.168.43",
+                        "172.20.10"];
+                let lanScanBusy = false;
+                const lanScan = async () => {
+                        if (lanScanBusy) return;
+                        lanScanBusy = true;
+                        try {
+                                const kToken = (window as any).siyuan?.config?.api?.token || "";
+                                const known = (this.config.lanPeers || []).map((p) => {
+                                        const [host, port] = p.split(":");
+                                        return { host, port: Number(port) || 6806 };
+                                });
+                                const bases = new Set<string>(DEFAULT_BASES);
+                                for (const p of known) {
+                                        const m = p.host.match(/^(\d+\.\d+\.\d+)\.\d+$/);
+                                        if (m) bases.add(m[1]);
+                                }
+                                const found = await scanLanPeers(
+                                        Array.from(bases), kToken, known);
+                                if (found.length > 0) {
+                                        const merged = [...(this.config.lanPeers || [])];
+                                        for (const f of found) {
+                                                merged.push(`${f.host}:${f.port}`);
+                                        }
+                                        this.config.lanPeers = merged;
+                                        const raw = JSON.stringify(merged);
+                                        showMessage(`LAN 自动发现：新增 ${found.length} 台对端（${raw}）`, 5000);
+                                }
+                        } catch (err) {
+                                console.warn("[LAN] scan failed", err);
+                        } finally {
+                                lanScanBusy = false;
+                        }
+                };
+                this.lanScan = lanScan;
+                setTimeout(lanScan, 15_000);
+                setInterval(lanScan, 600_000);
+
                 // [rt32] Optional md-repo mirror (mobile project-docs bridge).
                 if (this.config.mdRepo) {
                         this.mdMirror = new MdMirror(
@@ -485,6 +525,8 @@ export default class GitHubSyncPlugin extends Plugin {
             b.dataset.iconState = state;
         }
 
+
+        public lanScan?: () => Promise<void>;
 
         async onunload() {
                 this.realtime?.stop();
