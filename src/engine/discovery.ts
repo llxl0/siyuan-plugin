@@ -29,7 +29,7 @@ async function probe(ip: string, port: number, token: string): Promise<boolean> 
                 clearTimeout(t);
                 if (!r.ok) return false;
                 const j = await r.json();
-                return typeof j.data === "string" && /^3\\./.test(j.data);
+                return typeof j.data === "string" && String(j.data).startsWith("3.");
         } catch {
                 return false;
         }
