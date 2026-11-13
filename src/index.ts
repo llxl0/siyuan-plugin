@@ -427,13 +427,11 @@ export default class GitHubSyncPlugin extends Plugin {
             }, 50);
         }
 
-        /** [rt55] Refresh the combo state/push icon. */
+        /** [rt72] Refresh the combo state icon (inline SVG, 3 states). */
         refreshStateIcon(): void {
             const bar = this.statusBar as any;
             const state = bar?.syncState || "idle";
             const dir = bar?.lastAction || "push";
-            const icon = state === "syncing" ? "iconRefresh"
-                : dir === "pull" ? "iconGitHubDownload" : "iconGitHubUpload";
             let btn = document.getElementById("plugin_siyuan-github-sync-rt:rt-sync-state") as HTMLElement;
             if (!btn) {
                 btn = Array.from(document.querySelectorAll("#toolbar .toolbar__item"))
@@ -442,19 +440,26 @@ export default class GitHubSyncPlugin extends Plugin {
             }
             if (!btn) return;
             const b = btn as HTMLElement;
-            b.style.color = state === "error" ? "var(--b3-theme-error)"
-                : state === "syncing" ? "var(--b3-theme-warning)" : "";
-            b.style.animation = state === "syncing" ? "rt-spin 1s linear infinite" : "";
-            b.title = state === "syncing" ? "正在同步…" : state === "error" ? "上次同步失败" : "已同步（点击查看详情）";
-            if (state === "idle") {
-                if (b.dataset.iconState !== "idle") {
-                    b.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14" style="fill:currentColor"><rect x="3" y="4" width="10" height="2" rx="1"/><rect x="3" y="10" width="10" height="2" rx="1"/></svg>`;
-                    b.dataset.iconState = "idle";
-                }
+            const w = 'width="14" height="14" viewBox="0 0 16 16" style="fill:currentColor"';
+            if (state === "syncing") {
+                b.style.color = "var(--b3-theme-warning)";
+                b.style.animation = "rt-spin 1s linear infinite";
+                b.innerHTML = `<svg ${w}><path d="M8 1a7 7 0 1 1-6.6 4.7l1.9.6A5 5 0 1 0 8 3v2L4.5 2.5 8 0v1z"/></svg>`;
+                b.title = "正在同步…";
+            } else if (state === "error") {
+                b.style.color = "var(--b3-theme-error)";
+                b.style.animation = "";
+                b.innerHTML = `<svg ${w}><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3a1 1 0 0 1 1 1v4a1 1 0 1 1-2 0V5a1 1 0 0 1 1-1zm0 8.2a1.1 1.1 0 1 1 0-2.2 1.1 1.1 0 0 1 0 2.2z"/></svg>`;
+                b.title = "上次同步失败（点击查看详情）";
             } else {
-                b.innerHTML = `<svg style="width:14px;height:14px"><use xlink:href="#" + icon + "></use></svg>`;
-                b.dataset.iconState = state;
+                b.style.color = "";
+                b.style.animation = "";
+                b.innerHTML = dir === "pull"
+                    ? `<svg ${w} opacity="0.8"><path d="M2 4h12v2H2V4zm0 6h12v2H2v-2z"/></svg>`
+                    : `<svg ${w}><path d="M2 4h12v2H2V4zm0 6h12v2H2v-2z"/></svg>`;
+                b.title = "已同步（点击查看详情）";
             }
+            b.dataset.iconState = state;
         }
 
 
