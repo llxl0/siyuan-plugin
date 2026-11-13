@@ -348,7 +348,10 @@ export default class GitHubSyncPlugin extends Plugin {
 					showMessage("手动同步完成", 3000);
 				} catch (err) {
 					if (this.statusBar) this.statusBar.syncState = "error";
-					showMessage("同步失败：" + (err instanceof Error ? err.message : err), 6000, "error");
+					const msg = (err as any)?.status === 409
+						? "已有同步任务正在进行，请稍后再试"
+						: "同步失败：" + (err instanceof Error ? err.message : err);
+					showMessage(msg, 6000, "error");
 				} finally {
 					syncBtn.disabled = false;
 					syncBtn.textContent = "手动同步";
