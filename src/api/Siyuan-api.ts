@@ -456,6 +456,7 @@ export class SiYuanAPI {
 
                         // recent-doc.json participates in sync (merge-based)
                         if (relPath !== "storage/recent-doc.json" &&
+                        	!/\/\.siyuan\/conf\.json$/.test(relPath) &&
                         	shouldSkipPath(relPath, SKIP_ROOT_DIRS)) continue;
                         if (SKIP_PATH_FRAGMENTS.some((f) => sp.includes(f))) continue;
                         if (LOCKED_EXTENSIONS.some((ext) => e.name.toLowerCase().endsWith(ext)))
