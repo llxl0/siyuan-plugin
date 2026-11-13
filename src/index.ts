@@ -278,8 +278,7 @@ export default class GitHubSyncPlugin extends Plugin {
                                                 merged.push(`${f.host}:${f.port}`);
                                         }
                                         this.config.lanPeers = merged;
-                                        const prev = (await this.loadData()) || {};
-                                        await this.saveData({...prev, lanPeers: merged});
+                                        await this.saveData('lan-peers', {lanPeers: merged});
                                         showMessage(`LAN 自动发现：新增 ${found.length} 台对端`, 5000);
                                 }
                         } catch (err) {
