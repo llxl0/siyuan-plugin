@@ -6,6 +6,7 @@
  * Manages the complete push and pull pipelines, handling 3-way merges,
  * API orchestration, event emission for UI progress, and centralized error mapping.
  */
+import { LanSync } from "./LanSync";
 import { EventEmitter } from "events";
 import { showMessage, Dialog, getFrontend } from "siyuan";
 import { t, setLocale } from "../shared-utils/i18n";
@@ -86,6 +87,11 @@ export class SyncEngine extends EventEmitter {
 		super();
 	}
 
+		private lanSync?: LanSync;
+
+		/** [rt75] attach LAN transport for lan-mode notebooks. */
+		public setLanSync(ls: LanSync): void { this.lanSync = ls; }
+
 // --------------------------------------------
         // Main push/pull pipelines actions
         // --------------------------------------------
@@ -130,7 +136,32 @@ export class SyncEngine extends EventEmitter {
             return this.config.syncMode || "cloud";
         }
 
+        /** [rt75] Sync all lan-mode notebooks over the LAN transport. */
+        private async syncLanBoxes(): Promise<void> {
+                if (!this.lanSync) return;
+                const overrides = this.config.nbSyncModes || {};
+                const global = this.config.syncMode || "cloud";
+                const boxes = new Set<string>();
+                for (const [box, mode] of Object.entries(overrides)) {
+                        if (mode === "lan") boxes.add(box);
+                }
+                if (global === "lan" && boxes.size === 0) {
+                        for (const nb of await this.siyuan.listNotebooks()) {
+                                boxes.add(nb.id);
+                        }
+                }
+                for (const box of boxes) {
+                        try {
+                                await this.lanSync.syncBox(box);
+                        } catch (err) {
+                                console.error("[LAN] syncBox failed", box, err);
+                        }
+                }
+        }
+
         public async pushToGitHub(): Promise<SyncResult> {
+                // [rt75] LAN notebooks: sync via LAN transport, then fall through for cloud boxes
+                await this.syncLanBoxes();
                 // [rt42] syncMode gate: off/lan do not touch GitHub
                 if (!this.hasAnyCloudNotebook()) {
                 	return { status: "success" as const, message: "sync skipped (syncMode off/lan)", skipped: true };
@@ -198,6 +229,8 @@ export class SyncEngine extends EventEmitter {
 
 	// pull action pipeline
 	public async pullFromGitHub(): Promise<SyncResult> {
+                // [rt75] LAN notebooks: sync via LAN transport
+                await this.syncLanBoxes();
 		// [rt42] syncMode gate (same as push)
 		if (!this.hasAnyCloudNotebook()) {
 			return { status: "success" as const, message: "sync skipped (syncMode off/lan)", skipped: true };

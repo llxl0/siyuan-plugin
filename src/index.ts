@@ -13,6 +13,7 @@ import { Plugin, showMessage } from "siyuan";
 import { SyncEngine } from "./engine/SyncEngine";
 import { SyncStateLedger } from "./engine/SyncStateLedger";
 import { CryptoModule } from "./engine/CryptoModule";
+import { LanSync } from "./engine/LanSync";
 import { RealtimeEngine } from "./engine/RealtimeEngine";
 import { MdMirror } from "./engine/MdMirror";
 
@@ -236,6 +237,18 @@ export default class GitHubSyncPlugin extends Plugin {
                         this.statusBar,
                 );
                 this.realtime.start();
+
+                // [rt75] LAN transport wiring
+                if (this.config.lanPeers?.length) {
+                        const lan = new LanSync(
+                                this.config.token || "",
+                                (this.config.lanPeers || []).map((p) => {
+                                        const [host, port] = p.split(":");
+                                        return { host, port: Number(port) || 6806 };
+                                }),
+                        );
+                        this.engine.setLanSync(lan);
+                }
 
                 // [rt32] Optional md-repo mirror (mobile project-docs bridge).
                 if (this.config.mdRepo) {

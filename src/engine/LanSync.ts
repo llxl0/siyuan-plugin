@@ -69,6 +69,91 @@ export class LanSync {
     }
 
     /** Write one file to a peer. */
+
+    /** [rt75] Two-way sync one notebook (box) with every peer. mtime newer-wins. */
+    async syncBox(box: string): Promise<void> {
+        const localRoot = "/data/" + box;
+        for (const peer of this.peers) {
+            try {
+                await this.syncDir(peer, localRoot, localRoot);
+            } catch (err) {
+                console.error("[LAN] syncBox failed", box, peer.host, err);
+            }
+        }
+    }
+
+    /** Recursive two-way sync of one directory against one peer. */
+    private async syncDir(peer: LanPeer, localDir: string, remoteDir: string): Promise<void> {
+        let localEntries: any[] = [];
+        let remoteEntries: any[] = [];
+        try {
+            const r = await fetch("/api/file/readDir", {
+                method: "POST",
+                headers: { "Content-Type": "application/json",
+                    Authorization: "Token " + this.token },
+                body: JSON.stringify({ path: localDir }),
+            });
+            const j = await r.json();
+            localEntries = (j.data || []) as any[];
+        } catch { /* local dir may not exist yet */ }
+        try {
+            remoteEntries = await this.peerListDir(peer, remoteDir);
+        } catch { return; }
+
+        const localMap = new Map(localEntries.map((e) => [e.name, e]));
+        const remoteMap = new Map(remoteEntries.map((e) => [e.name, e]));
+
+        for (const [name, le] of localMap) {
+            const re_ = remoteMap.get(name);
+            const lp = localDir + "/" + name;
+            const rp = remoteDir + "/" + name;
+            if (le.isDir) {
+                await this.syncDir(peer, lp, rp);
+                continue;
+            }
+            if (!re_) {
+                await this.peerPutFile(peer, rp, await this.localGet(lp));
+            } else if ((le.updated || le.mtimeMs || 0) > (re_.updated || re_.mtimeMs || 0)) {
+                await this.peerPutFile(peer, rp, await this.localGet(lp));
+            } else if ((re_.updated || re_.mtimeMs || 0) > (le.updated || le.mtimeMs || 0)) {
+                const buf = await this.peerGetFile(peer, rp);
+                if (buf) await this.localPut(lp, buf);
+            }
+        }
+        // remote-only files → pull
+        for (const [name, re_] of remoteMap.entries()) {
+            if (localMap.has(name)) continue;
+            const rp = remoteDir + "/" + name;
+            const lp = localDir + "/" + name;
+            if (re_.isDir) {
+                await this.syncDir(peer, lp, rp);
+            } else {
+                const buf = await this.peerGetFile(peer, rp);
+                if (buf) await this.localPut(lp, buf);
+            }
+        }
+    }
+
+    private async localGet(path: string): Promise<ArrayBuffer | null> {
+        try {
+            const r = await fetch("/api/file/getFile", {
+                method: "POST",
+                headers: { "Content-Type": "application/json",
+                    Authorization: "Token " + this.token },
+                body: JSON.stringify({ path }),
+            });
+            return await r.arrayBuffer();
+        } catch { return null; }
+    }
+
+    private async localPut(path: string, buf: ArrayBuffer): Promise<void> {
+        const fd = new FormData();
+        fd.append("path", path);
+        fd.append("isDir", "false");
+        fd.append("file", new Blob([buf]));
+        await fetch("/api/file/putFile", { method: "POST", body: fd });
+    }
+
     async peerPutFile(
         peer: LanPeer,
         path: string,
