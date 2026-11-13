@@ -95,7 +95,7 @@ this.engine.removeAllListeners()
 				],
 			),
 			lanPeers: this.mkInput(
-				"局域网对端 (LAN peers, 逗号分隔 IP)",
+				"局域网对端 (IP:端口, 逗号分隔, 如 192.168.1.6:6806)",
 				(this.plugin.config.lanPeers || []).join(","),
 			),
 			actions: null, // will be populated later
@@ -255,6 +255,11 @@ this.engine.removeAllListeners()
 				title: "每本笔记本的同步模式",
 				createActionElement: () => this.mkNbSyncList(),
 			});
+                // [rt74] LAN peers input (was defined but never rendered!)
+                this.plugin.setting.addItem({
+                	title: "局域网对端 (LAN peers)",
+                	createActionElement: () => inputFields.lanPeers,
+                });
 
 		// action buttons
 		this.plugin.setting.addItem({
