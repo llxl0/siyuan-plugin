@@ -239,7 +239,14 @@ export default class GitHubSyncPlugin extends Plugin {
                 );
                 this.realtime.start();
 
-                // [rt75] LAN transport wiring
+                // [rt75/rt79] LAN transport wiring (merge persisted discovered peers)
+                try {
+                        const savedLan = await this.loadData('lan-peers');
+                        const savedList: string[] = savedLan?.lanPeers || [];
+                        const cur = new Set(this.config.lanPeers || []);
+                        for (const v of savedList) cur.add(v);
+                        this.config.lanPeers = Array.from(cur);
+                } catch { /* first run */ }
                 if (this.config.lanPeers?.length) {
                         const kToken = (window as any).siyuan?.config?.api?.token || "";
                         const lan = new LanSync(
@@ -278,7 +285,14 @@ export default class GitHubSyncPlugin extends Plugin {
                                                 merged.push(`${f.host}:${f.port}`);
                                         }
                                         this.config.lanPeers = merged;
-                                        await this.saveData('lan-peers', {lanPeers: merged});
+                                        await this.saveData('lan-peers',
+                                                {lanPeers: merged});
+                                        const kToken2 = (window as any).siyuan?.config?.api?.token || "";
+                                        const lanNew = new LanSync(kToken2, merged.map((p) => {
+                                                const [host, port] = p.split(":");
+                                                return { host, port: Number(port) || 6806 };
+                                        }));
+                                        this.engine.setLanSync(lanNew);
                                         showMessage(`LAN 自动发现：新增 ${found.length} 台对端`, 5000);
                                 }
                         } catch (err) {
