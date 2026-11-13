@@ -240,8 +240,9 @@ export default class GitHubSyncPlugin extends Plugin {
 
                 // [rt75] LAN transport wiring
                 if (this.config.lanPeers?.length) {
+                        const kToken = (window as any).siyuan?.config?.api?.token || "";
                         const lan = new LanSync(
-                                this.config.token || "",
+                                kToken,
                                 (this.config.lanPeers || []).map((p) => {
                                         const [host, port] = p.split(":");
                                         return { host, port: Number(port) || 6806 };
@@ -416,9 +417,10 @@ export default class GitHubSyncPlugin extends Plugin {
                     const [ph, pp] = peers[0].split(":");
                     const pbase = `http://${ph}:${pp || 6806}`;
                     try {
+                        const kToken = (window as any).siyuan?.config?.api?.token || "";
                         const pr = await fetch(pbase + "/api/query/sql", {
                             method: "POST",
-                            headers: { "Content-Type": "application/json", Authorization: "Token " + (this.config.token || "") },
+                            headers: { "Content-Type": "application/json", Authorization: "Token " + kToken },
                             body: JSON.stringify({ stmt: `SELECT box, COUNT(*) AS c FROM blocks WHERE type="d" GROUP BY box` }),
                         });
                         if (!pr.ok) throw new Error(String(pr.status));
