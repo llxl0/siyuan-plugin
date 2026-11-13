@@ -278,8 +278,11 @@ export default class GitHubSyncPlugin extends Plugin {
                                                 merged.push(`${f.host}:${f.port}`);
                                         }
                                         this.config.lanPeers = merged;
-                                        const raw = JSON.stringify(merged);
-                                        showMessage(`LAN 自动发现：新增 ${found.length} 台对端（${raw}）`, 5000);
+                                        await this.saveData({
+                                                ...(await this.loadData({}) || {}),
+                                                lanPeers: merged,
+                                        });
+                                        showMessage(`LAN 自动发现：新增 ${found.length} 台对端`, 5000);
                                 }
                         } catch (err) {
                                 console.warn("[LAN] scan failed", err);
