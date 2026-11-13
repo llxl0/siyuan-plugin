@@ -390,7 +390,12 @@ export default class GitHubSyncPlugin extends Plugin {
                     psec.style.cssText = "margin-top:8px";
                     if (sec && sec.parentElement) sec.parentElement.insertBefore(psec, sec.nextSibling);
                 }
-                if (peers.length === 0) { psec.innerHTML = "未配置 LAN 对端"; }
+                const hasLanNb = Object.values(this.config.nbSyncModes || {}).some((m) => m === "lan");
+                if (peers.length === 0) {
+                    psec.innerHTML = hasLanNb
+                        ? '<span style="color:var(--b3-theme-warning)">⚠ 有笔记本设为 LAN 模式但未配置对端——请在设置里填对端 IP:端口，或将该笔记本改回 ☁ cloud</span>'
+                        : "";
+                }
                 else {
                     const [ph, pp] = peers[0].split(":");
                     const pbase = `http://${ph}:${pp || 6806}`;
@@ -444,7 +449,7 @@ export default class GitHubSyncPlugin extends Plugin {
             if (state === "syncing") {
                 b.style.color = "var(--b3-theme-warning)";
                 b.style.animation = "rt-spin 1s linear infinite";
-                b.innerHTML = `<svg ${w}><path d="M8 1a7 7 0 1 1-6.6 4.7l1.9.6A5 5 0 1 0 8 3v2L4.5 2.5 8 0v1z"/></svg>`;
+                b.innerHTML = `<svg ${w}><path d="M12.6 6.6A4.7 4.7 0 0 0 4.4 4.4L5.8 5.8H1.9V1.9l1.4 1.4A6.2 6.2 0 0 1 14.1 6.6h-1.5zM3.4 9.4a4.7 4.7 0 0 0 8.2 2.2L10.2 10.2H14.1V14.1l-1.4-1.4a6.2 6.2 0 0 1-10.8-2.2h1.5z"/></svg>`;
                 b.title = "正在同步…";
             } else if (state === "error") {
                 b.style.color = "var(--b3-theme-error)";
