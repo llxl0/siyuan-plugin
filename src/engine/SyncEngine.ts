@@ -748,7 +748,8 @@ for (let i = 0; i < plan.toUpload.length; i++) {
 			if (i.path.startsWith(`${SYNC_ROOT}/`)) {
 				const relPath = i.path.slice(SYNC_ROOT.length + 1);
 				if (relPath !== "storage/recent-doc.json" &&
-					shouldSkipPath(relPath, SKIP_ROOT_DIRS)) return false;
+					!/\/\.siyuan\/conf\.json$/.test(relPath) &&
+								shouldSkipPath(relPath, SKIP_ROOT_DIRS)) return false;
 			}
 
 			return i.path.startsWith(SYNC_ROOT);

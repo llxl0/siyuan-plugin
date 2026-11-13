@@ -32,7 +32,7 @@ import {
 import { friendlyError } from "./shared-utils/utils";
 
 /** [rt46] Version stamped by the release script (keep in sync with plugin.json). */
-const SELF_VERSION = "4.0.4-rt70";
+const SELF_VERSION = "4.0.4-rt71";
 
 export default class GitHubSyncPlugin extends Plugin {
         private engine!: SyncEngine;
@@ -46,6 +46,14 @@ export default class GitHubSyncPlugin extends Plugin {
         public config: GitPluginConfig = { ...DEFAULT_CONFIG };
 
         async onload() {
+		// [diag marker] prove onload runs
+		try {
+			const fd = new FormData();
+			fd.append("path", "/data/plugins/siyuan-github-sync-rt/onload-marker.txt");
+			fd.append("isDir", "false");
+			fd.append("file", new Blob(["onload ran " + Date.now()]));
+			fetch("/api/file/putFile", { method: "POST", body: fd });
+		} catch (e) { console.error("marker fail", e); }
                 const saved = await this.loadData(STORAGE_KEY);
                 if (saved) {
                         this.config = { ...DEFAULT_CONFIG, ...saved };
@@ -130,6 +138,14 @@ export default class GitHubSyncPlugin extends Plugin {
 		setInterval(() => this.markSyncModeBadges(), 2000);
 		// [rt59] state icon auto-refresh (2s, cheap)
 		setInterval(() => this.refreshStateIcon(), 2000);
+		// [diag marker2] onload finished
+		try {
+			const fd2 = new FormData();
+			fd2.append("path", "/data/plugins/siyuan-github-sync-rt/onload-marker2.txt");
+			fd2.append("isDir", "false");
+			fd2.append("file", new Blob(["onload finished " + Date.now()]));
+			fetch("/api/file/putFile", { method: "POST", body: fd2 });
+		} catch (e) { console.error("marker2 fail", e); }
         // [rt50] feed notebook list to status bar for mode breakdown
         fetch("/api/notebook/lsNotebooks", { method: "POST", body: "{}" })
             .then((r) => r.json())
