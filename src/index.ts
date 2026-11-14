@@ -15,6 +15,7 @@ import { SyncStateLedger } from "./engine/SyncStateLedger";
 import { CryptoModule } from "./engine/CryptoModule";
 import { LanSync } from "./engine/LanSync";
 import { scanLanPeers } from "./engine/discovery";
+import { DetailPanel } from "./ui/detailPanel";
 import { RealtimeEngine } from "./engine/RealtimeEngine";
 import { MdMirror } from "./engine/MdMirror";
 
@@ -308,12 +309,13 @@ export default class GitHubSyncPlugin extends Plugin {
                 this.engine.on("progress", (pct: number, status: string, details?: string) => {
                         this.syncProgress = { pct, status, detail: details };
                         this.refreshStateIcon();
-                        const el = this.detailEl;
-                        if (el && document.body.contains(el)) {
-                                const prog = el.querySelector("#rt-detail-progress");
-                                if (prog) {
-                                if (prog) { prog.innerHTML = `<div style="margin:4px 0;font-size:12px"><b>${pct}%</b> ${status}${details ? " · " + details : ""}</div>`; }
-                                }
+                        // [rt83] 面板开着时节流刷新（3s）
+                        const now = Date.now();
+                        if (this.detailPanel && this.detailEl
+                                && document.body.contains(this.detailEl)
+                                && (!this._lastPanelRefresh || now - this._lastPanelRefresh > 3000)) {
+                                this._lastPanelRefresh = now;
+                                this.showSyncDetail();
                         }
                 });
                 setInterval(lanScan, 600_000);
@@ -397,136 +399,16 @@ export default class GitHubSyncPlugin extends Plugin {
 	}
 
         /** [rt55] Sync detail popover. */
-        async showSyncDetail(): Promise<void> {
-            const bar = this.statusBar as any;
-            const local = bar?.localCount ?? 0;
-            const remote = bar?.remoteCount ?? 0;
-            const state = bar?.syncState || "idle";
-            const stateText = state === "syncing" ? "🔄 正在同步…" : state === "error" ? "⛔ 上次同步失败" : "✅ 已同步";
-            const pr = this.syncProgress;
-            const progressLine = (state === "syncing" && pr)
-                ? `<div id="rt-detail-progress" style="margin:4px 0;font-size:12px"><b>${pr.pct}%</b> ${pr.status}${pr.detail ? " · " + pr.detail : ""}</div>`
-                : `<div id="rt-detail-progress" style="margin:4px 0;font-size:12px;opacity:.75">空闲</div>`;
-            let timeLine = "";
-            if (this.config.lastSync) {
-                const d = new Date(this.config.lastSync);
-                const pad = (n: number) => String(n).padStart(2, "0");
-                const ts = `${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-                timeLine = `<div style="margin-top:6px;font-size:12px;opacity:.75">上次云端同步: ${ts}</div>`;
-            }
-            const rows = (bar?.modeDetail as string) || "（无数据）";
-            const el = document.createElement("div");
-            el.style.cssText = "position:fixed;top:40px;right:60px;z-index:99;background:var(--b3-theme-background);border:1px solid var(--b3-border-color);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.25);max-width:380px;max-height:50vh;overflow:auto;padding:12px;font-size:13px;line-height:1.9;user-select:text;";
-            el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-weight:600"><span style="opacity:.75">GitHub</span>: ${local === "0" ? "—" : local}/${remote} · ${stateText}</span><span id="rt-detail-close" style="cursor:pointer;opacity:.6;padding:0 4px">✕</span></div>${timeLine}${progressLine}<div style="margin-top:8px;font-weight:600"><span style="opacity:.75">☁</span> 云端笔记本</div><div id="rt-nb-rows">加载中…</div>` + `<div style="margin-top:10px;display:flex;gap:8px"><button id="rt-detail-sync" class="b3-button b3-button--outline" style="font-size:12px">手动同步</button></div>`;
-            // [rt58] manual sync button (disabled while syncing)
-            const syncBtn = el.querySelector("#rt-detail-sync") as HTMLButtonElement;
-            syncBtn.onclick = async () => {
-				syncBtn.disabled = true;
-				syncBtn.textContent = "同步中…";
-				if (this.statusBar) this.statusBar.syncState = "syncing";
-				this.refreshStateIcon();
-				try {
-					await this.engine.pullFromGitHub();
-					await this.engine.pushToGitHub();
-					if (this.statusBar) this.statusBar.syncState = "idle";
-					await this.statusBar.saveTimestamp();
-					showMessage("手动同步完成", 3000);
-				} catch (err) {
-					if (this.statusBar) this.statusBar.syncState = "error";
-					const msg = (err as any)?.status === 409
-						? "已有同步任务正在进行，请稍后再试"
-						: "同步失败：" + (err instanceof Error ? err.message : err);
-					showMessage(msg, 6000, "error");
-				} finally {
-					syncBtn.disabled = false;
-					syncBtn.textContent = "手动同步";
-					this.refreshStateIcon();
-				}
-			};
-            const close = () => el.remove();
-            el.addEventListener("click", close);
-            document.body.appendChild(el);
-            this.detailEl = el;
-            const _origClose = close;
-            el.addEventListener("click", () => { this.detailEl = null; });
-            // [rt60/64] fetch notebooks + doc counts + peer data (await style)
-            try {
-                const sqlRes = await fetch("/api/query/sql", {
-                    method: "POST", headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ stmt: `SELECT box, COUNT(*) AS c FROM blocks WHERE type="d" GROUP BY box` }),
-                });
-                const sqlJson = await sqlRes.json();
-                const docMap: Record<string, number> = {};
-                for (const row of sqlJson?.data || []) docMap[row.box] = row.c;
-                const nbRes = await fetch("/api/notebook/lsNotebooks", { method: "POST", body: "{}" });
-                const nbJson = await nbRes.json();
-                const nbs = (nbJson?.data?.notebooks || []) as { id: string; name: string }[];
-                const overrides = (this.config.nbSyncModes || {}) as Record<string, string>;
-                const global = (this.config.syncMode || "cloud") as string;
-                const icons: Record<string, string> = { cloud: "\u2601", lan: "\ud83c\udfe0", off: "\u26d4" };
-                let html = "";
-                for (const nb of nbs) {
-                    const mode = overrides[nb.id] || global;
-                    const c = docMap[nb.id] ?? 0;
-                    html += `<div>${icons[mode] || ""} ${nb.name} — ${mode} · ${c} 篇</div>`;
-                }
-                const sec = el.querySelector("#rt-nb-rows");
-                if (sec) sec.innerHTML = html || "（无笔记本）";
-                // peer section
-                const peers = (this.config.lanPeers || []) as string[];
-                let psec = el.querySelector("#rt-peer-rows") as HTMLElement | null;
-                if (!psec) {
-                    psec = document.createElement("div");
-                    psec.id = "rt-peer-rows";
-                    psec.style.cssText = "margin-top:8px";
-                    if (sec && sec.parentElement) sec.parentElement.insertBefore(psec, sec.nextSibling);
-                }
-                const hasLanNb = Object.values(this.config.nbSyncModes || {}).some((m) => m === "lan");
-                const lanNbs = Object.entries(this.config.nbSyncModes || {})
-                    .filter(([, m]) => m === "lan").map(([b]) => b);
-                const lanSummary = (peers.length > 0)
-                    ? `<div style="margin-top:10px;font-weight:600"><span style="opacity:.75">🏠</span> 局域网（对端 ${peers.map((p) => p.split(":")[0]).join(", ")}）</div><div id="rt-lan-peer-status" style="font-size:12px;opacity:.8">检测中…</div>`
-                    : (hasLanNb
-                        ? '<div style="margin-top:10px;font-weight:600"><span style="opacity:.75">🏠</span> 局域网</div><div style="font-size:12px;color:var(--b3-theme-warning)">⚠ 有笔记本为 LAN 模式但未配置对端——请在设置里填 IP:端口</div>'
-                        : '');
-                if (peers.length === 0) {
-                    psec.innerHTML = lanSummary;
-                } else {
-                    psec.insertAdjacentHTML("afterbegin", lanSummary);
-                    const [ph, pp] = peers[0].split(":");
-                    const pbase = `http://${ph}:${pp || 6806}`;
-                    try {
-                        const kToken = (window as any).siyuan?.config?.api?.token || "";
-                        const pr = await fetch(pbase + "/api/query/sql", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json", Authorization: "Token " + kToken },
-                            body: JSON.stringify({ stmt: `SELECT box, COUNT(*) AS c FROM blocks WHERE type="d" GROUP BY box` }),
+        showSyncDetail(): void {
+                if (!this.detailPanel) {
+                        this.detailPanel = new DetailPanel({
+                                plugin: this,
+                                config: this.config,
+                                ledger: this.ledger,
+                                onClose: () => { this.detailEl = null; },
                         });
-                        if (!pr.ok) throw new Error(String(pr.status));
-                        const pj = await pr.json();
-                        const pmap: Record<string, number> = {};
-                        for (const row of pj?.data || []) pmap[row.box] = row.c;
-                        let phtml = `<div style="font-size:12px;opacity:.7">${ph}</div>`;
-                        for (const nb of nbs) {
-                            const c = docMap[nb.id] ?? 0;
-                            const pc = pmap[nb.id] ?? 0;
-                            const mark = c === pc ? "\u2705" : "\u26a0\ufe0f";
-                            phtml += `<div>${mark} ${nb.name}: 本端 ${c} / 对端 ${pc}</div>`;
-                        }
-                        psec.innerHTML = phtml;
-                    } catch {
-                        psec.innerHTML = `对端 ${ph} 不可达`;
-                    }
                 }
-            } catch (e) {
-                console.warn("[RT] detail fetch failed", e);
-            }
-            setTimeout(() => {
-                const closer = (ev: MouseEvent) => {
-                    if (!el.contains(ev.target as Node)) { close(); document.removeEventListener("click", closer); }
-                };
-                document.addEventListener("click", closer);
-            }, 50);
+                this.detailPanel.open();
         }
 
         /** [rt72] Refresh the combo state icon (inline SVG, 3 states). */
@@ -569,6 +451,8 @@ export default class GitHubSyncPlugin extends Plugin {
 
         public lanScan?: () => Promise<void>;
         public syncProgress?: { pct: number; status: string; detail?: string } | null;
+        public detailPanel?: DetailPanel;
+        public _lastPanelRefresh = 0;
         public detailEl: HTMLElement | null = null;
 
         async onunload() {
