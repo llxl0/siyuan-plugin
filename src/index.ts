@@ -417,7 +417,7 @@ export default class GitHubSyncPlugin extends Plugin {
             const rows = (bar?.modeDetail as string) || "（无数据）";
             const el = document.createElement("div");
             el.style.cssText = "position:fixed;top:40px;right:60px;z-index:99;background:var(--b3-theme-background);border:1px solid var(--b3-border-color);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.25);max-width:380px;max-height:50vh;overflow:auto;padding:12px;font-size:13px;line-height:1.9;user-select:text;";
-            el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-weight:600"><span style="opacity:.75">GitHub</span>: ${local}/${remote} · ${stateText}</span><span id="rt-detail-close" style="cursor:pointer;opacity:.6;padding:0 4px">✕</span></div>${timeLine}${progressLine}<div style="margin-top:8px;font-weight:600">笔记本同步模式</div><div id="rt-nb-rows">加载中…</div>` + `<div style="margin-top:10px;display:flex;gap:8px"><button id="rt-detail-sync" class="b3-button b3-button--outline" style="font-size:12px">手动同步</button></div>`;
+            el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-weight:600"><span style="opacity:.75">GitHub</span>: ${local === "0" ? "—" : local}/${remote} · ${stateText}</span><span id="rt-detail-close" style="cursor:pointer;opacity:.6;padding:0 4px">✕</span></div>${timeLine}${progressLine}<div style="margin-top:8px;font-weight:600"><span style="opacity:.75">☁</span> 云端笔记本</div><div id="rt-nb-rows">加载中…</div>` + `<div style="margin-top:10px;display:flex;gap:8px"><button id="rt-detail-sync" class="b3-button b3-button--outline" style="font-size:12px">手动同步</button></div>`;
             // [rt58] manual sync button (disabled while syncing)
             const syncBtn = el.querySelector("#rt-detail-sync") as HTMLButtonElement;
             syncBtn.onclick = async () => {
@@ -482,12 +482,17 @@ export default class GitHubSyncPlugin extends Plugin {
                     if (sec && sec.parentElement) sec.parentElement.insertBefore(psec, sec.nextSibling);
                 }
                 const hasLanNb = Object.values(this.config.nbSyncModes || {}).some((m) => m === "lan");
+                const lanNbs = Object.entries(this.config.nbSyncModes || {})
+                    .filter(([, m]) => m === "lan").map(([b]) => b);
+                const lanSummary = (peers.length > 0)
+                    ? `<div style="margin-top:10px;font-weight:600"><span style="opacity:.75">🏠</span> 局域网（对端 ${peers.map((p) => p.split(":")[0]).join(", ")}）</div><div id="rt-lan-peer-status" style="font-size:12px;opacity:.8">检测中…</div>`
+                    : (hasLanNb
+                        ? '<div style="margin-top:10px;font-weight:600"><span style="opacity:.75">🏠</span> 局域网</div><div style="font-size:12px;color:var(--b3-theme-warning)">⚠ 有笔记本为 LAN 模式但未配置对端——请在设置里填 IP:端口</div>'
+                        : '');
                 if (peers.length === 0) {
-                    psec.innerHTML = hasLanNb
-                        ? '<span style="color:var(--b3-theme-warning)">⚠ 有笔记本设为 LAN 模式但未配置对端——请在设置里填对端 IP:端口，或将该笔记本改回 ☁ cloud</span>'
-                        : "";
-                }
-                else {
+                    psec.innerHTML = lanSummary;
+                } else {
+                    psec.insertAdjacentHTML("afterbegin", lanSummary);
                     const [ph, pp] = peers[0].split(":");
                     const pbase = `http://${ph}:${pp || 6806}`;
                     try {
