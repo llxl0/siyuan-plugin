@@ -303,6 +303,19 @@ export default class GitHubSyncPlugin extends Plugin {
                 };
                 this.lanScan = lanScan;
                 setTimeout(lanScan, 15_000);
+
+                // [rt81] live progress for tooltip + detail panel
+                this.engine.on("progress", (pct: number, status: string, details?: string) => {
+                        this.syncProgress = { pct, status, detail: details };
+                        this.refreshStateIcon();
+                        const el = this.detailEl;
+                        if (el && document.body.contains(el)) {
+                                const prog = el.querySelector("#rt-detail-progress");
+                                if (prog) {
+                                if (prog) { prog.innerHTML = `<div style="margin:4px 0;font-size:12px"><b>${pct}%</b> ${status}${details ? " · " + details : ""}</div>`; }
+                                }
+                        }
+                });
                 setInterval(lanScan, 600_000);
 
                 // [rt32] Optional md-repo mirror (mobile project-docs bridge).
@@ -390,6 +403,10 @@ export default class GitHubSyncPlugin extends Plugin {
             const remote = bar?.remoteCount ?? 0;
             const state = bar?.syncState || "idle";
             const stateText = state === "syncing" ? "🔄 正在同步…" : state === "error" ? "⛔ 上次同步失败" : "✅ 已同步";
+            const pr = this.syncProgress;
+            const progressLine = (state === "syncing" && pr)
+                ? `<div id="rt-detail-progress" style="margin:4px 0;font-size:12px"><b>${pr.pct}%</b> ${pr.status}${pr.detail ? " · " + pr.detail : ""}</div>`
+                : `<div id="rt-detail-progress" style="margin:4px 0;font-size:12px;opacity:.75">空闲</div>`;
             let timeLine = "";
             if (this.config.lastSync) {
                 const d = new Date(this.config.lastSync);
@@ -400,7 +417,7 @@ export default class GitHubSyncPlugin extends Plugin {
             const rows = (bar?.modeDetail as string) || "（无数据）";
             const el = document.createElement("div");
             el.style.cssText = "position:fixed;top:40px;right:60px;z-index:99;background:var(--b3-theme-background);border:1px solid var(--b3-border-color);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.25);max-width:380px;max-height:50vh;overflow:auto;padding:12px;font-size:13px;line-height:1.9;user-select:text;";
-            el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-weight:600"><span style="opacity:.75">GitHub</span>: ${local}/${remote} · ${stateText}</span><span id="rt-detail-close" style="cursor:pointer;opacity:.6;padding:0 4px">✕</span></div>${timeLine}<div style="margin-top:8px;font-weight:600">笔记本同步模式</div><div id="rt-nb-rows">加载中…</div>` + `<div style="margin-top:10px;display:flex;gap:8px"><button id="rt-detail-sync" class="b3-button b3-button--outline" style="font-size:12px">手动同步</button></div>`;
+            el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-weight:600"><span style="opacity:.75">GitHub</span>: ${local}/${remote} · ${stateText}</span><span id="rt-detail-close" style="cursor:pointer;opacity:.6;padding:0 4px">✕</span></div>${timeLine}${progressLine}<div style="margin-top:8px;font-weight:600">笔记本同步模式</div><div id="rt-nb-rows">加载中…</div>` + `<div style="margin-top:10px;display:flex;gap:8px"><button id="rt-detail-sync" class="b3-button b3-button--outline" style="font-size:12px">手动同步</button></div>`;
             // [rt58] manual sync button (disabled while syncing)
             const syncBtn = el.querySelector("#rt-detail-sync") as HTMLButtonElement;
             syncBtn.onclick = async () => {
@@ -429,6 +446,9 @@ export default class GitHubSyncPlugin extends Plugin {
             const close = () => el.remove();
             el.addEventListener("click", close);
             document.body.appendChild(el);
+            this.detailEl = el;
+            const _origClose = close;
+            el.addEventListener("click", () => { this.detailEl = null; });
             // [rt60/64] fetch notebooks + doc counts + peer data (await style)
             try {
                 const sqlRes = await fetch("/api/query/sql", {
@@ -522,7 +542,9 @@ export default class GitHubSyncPlugin extends Plugin {
                 b.style.color = "var(--b3-theme-warning)";
                 b.style.animation = "rt-spin 1s linear infinite";
                 b.innerHTML = `<svg ${w}><path d="M12.6 6.6A4.7 4.7 0 0 0 4.4 4.4L5.8 5.8H1.9V1.9l1.4 1.4A6.2 6.2 0 0 1 14.1 6.6h-1.5zM3.4 9.4a4.7 4.7 0 0 0 8.2 2.2L10.2 10.2H14.1V14.1l-1.4-1.4a6.2 6.2 0 0 1-10.8-2.2h1.5z"/></svg>`;
-                b.title = "正在同步…";
+                const pr = this.syncProgress;
+                b.title = pr ? `同步中 ${pr.pct}% ${pr.status}${pr.detail ? " · " + pr.detail : ""}`
+                        : "正在同步…";
             } else if (state === "error") {
                 b.style.color = "var(--b3-theme-error)";
                 b.style.animation = "";
@@ -541,6 +563,8 @@ export default class GitHubSyncPlugin extends Plugin {
 
 
         public lanScan?: () => Promise<void>;
+        public syncProgress?: { pct: number; status: string; detail?: string } | null;
+        public detailEl: HTMLElement | null = null;
 
         async onunload() {
                 this.realtime?.stop();
