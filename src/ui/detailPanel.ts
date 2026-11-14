@@ -61,6 +61,10 @@ export class DetailPanel {
         document.body.appendChild(el);
         this.el = el;
         el.innerHTML = "<div style='opacity:.6'>加载中…</div>";
+        const showErr = (msg: string) => {
+            el.innerHTML = `<div style="color:var(--b3-theme-error)">面板数据加载失败：${msg}</div>`
+                + `<div style="margin-top:6px;font-size:12px;opacity:.7">点击 ✕ 关闭后重试</div>`;
+        };
 
         // close on ✕ / outside click
         const closeHandler = (e: MouseEvent) => {
@@ -72,6 +76,7 @@ export class DetailPanel {
         };
         setTimeout(() => document.addEventListener("click", closeHandler, true), 0);
 
+        try {
         const cfg = this.deps.config;
         const kToken = (window as any).siyuan?.config?.api?.token || "";
         const nbResp = await jsonPost("/api/notebook/lsNotebooks", {}, kToken);
@@ -221,6 +226,9 @@ ${offRows}
                 (syncBtn as HTMLButtonElement).disabled = false;
             }
         });
+        } catch (e) {
+            showErr(String(e).slice(0, 150));
+        }
     }
 }
 
